@@ -1,4 +1,4 @@
-# Wrenchmark — working prototype
+# Wrenchmark — working prototype (v2: matching engine)
 
 Full customer → mechanic → payment → data loop. Runs locally, no accounts required.
 
@@ -104,3 +104,76 @@ wrenchmark.db created on first run — delete it to reset
 `economy`, `standard`, `truck_suv`, `euro_luxury` and it drives the rate card directly. The
 customer is never asked what kind of car they have — adding a model to the catalogue is
 what makes it bookable and priced.
+
+
+---
+
+# The matching engine
+
+Uber scores one thing that matters: proximity. Any driver can take any trip.
+
+Ours can't. A mechanic is eligible only if they can actually finish the job. So
+matching runs as **hard gates first, scoring only among the survivors.**
+
+## Gates — fail any one and you don't appear at all
+
+- Active status, insurance on file and unexpired, license unexpired
+- Agreement signed, **training completed**
+- Approved for this job type
+- Approved for this vehicle class
+- Job inside their stated maximum drive time
+- Enough capacity left in that arrival window
+
+Every failure is recorded with its reason and shown on the dispatch screen. There is
+never a mystery about why someone didn't get offered a job.
+
+## Score — only among the eligible
+
+| Term | Max | Why |
+|---|---|---|
+| Proximity | 50 | 0 min = 50, 45 min = 0 |
+| **Parts on the van** | 22 | Biggest predictor of a completed job |
+| Headroom in the window | 14 | Don't fragment somebody's day |
+| Completions on this job type | 10 | Demonstrated competence |
+| Completions on this vehicle class | 4 | Familiarity |
+
+The parts term is the one with no rideshare equivalent. A mechanic 5 minutes away
+without the starter is worse than one 20 minutes away carrying it — the first is an
+aborted job, the second is revenue.
+
+## Wave dispatch
+
+Offers go to the top 3 eligible mechanics **at once**. Nobody accepts in 120 seconds,
+it widens to the next 3. After 3 waves with no taker, the card hold is released
+automatically and the customer is charged nothing.
+
+Sequential single-offer dispatch would be slower and would look far more like
+assignment. Batched waves keep it genuinely a choice.
+
+**Declining never affects ranking.** Nothing in the score reads acceptance history,
+compliance, or responsiveness — only capability, distance, and completed work. That is
+a deliberate constraint, not an oversight: a score that punished declining would be a
+control mechanism, and would be read as one.
+
+## Payout
+
+Base share of the ticket plus a per-minute drive allowance, uplifted December through
+February. A 40-minute drive to a $90 oil change is a job nobody rational accepts, and
+dispatch that ignores that produces a network that quietly stops answering.
+
+## Swapping in Google Maps
+
+`geo.js` estimates drive time from great-circle distance times a 1.28 circuity factor
+at 42 km/h effective. Replace `driveMinutes(a, b)` with a Distance Matrix call and
+nothing else in the engine changes — every other module reads through that one
+function.
+
+Job coordinates currently come from the locality the customer picks. Replace with
+Geocoding on the typed address when there's a key; the `lat`/`lng` columns are already
+on the jobs table.
+
+## Live dispatch screen
+
+`/admin/dispatch` — metro map with mechanic pins and the job, lines showing who was
+offered, and the full ranked candidate table with each score's breakdown and every
+exclusion reason. This is the screen that makes the engine auditable.

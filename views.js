@@ -44,6 +44,7 @@ function page(title, nav, body, extraJs = '') {
   <div class="nav-links">
     <a href="/" class="${nav === 'book' ? 'on' : ''}">Book</a>
     <a href="/tech" class="${nav === 'tech' ? 'on' : ''}">Mechanic</a>
+    <a href="/admin/dispatch" class="${nav === 'admin' ? 'on' : ''}">Dispatch</a>
     <a href="/admin" class="${nav === 'admin' ? 'on' : ''}">Operations</a>
   </div>
 </div></div>
@@ -148,11 +149,8 @@ function intake() {
         <div class="f"><label>Where is the vehicle?</label>
           <input type="text" name="service_address" id="f-addr" placeholder="1420 Nicollet Ave, Minneapolis, MN 55403"></div>
         <div class="f"><label>Service area</label>
-          <select name="zone">
-            <option value="minneapolis">Minneapolis</option>
-            <option value="st_paul">St. Paul</option>
-            <option value="bloomington">Bloomington</option>
-          </select></div>
+          <select name="zone">${require('./geo').LOCALITIES.map(l => `<option value="${l.code}">${esc(l.label)}</option>`).join('')}</select>
+          <div class="help">We use this to find the mechanics closest to you.</div></div>
         <div class="f" style="margin-bottom:0"><label>Arrival window</label>
           <div class="slots">${slots}</div></div>
       </div></div>
@@ -451,6 +449,8 @@ function techBoard(c, offers, active) {
         </div>
         <dl class="dl">
           <dt>Location</dt><dd>${esc(o.service_address)}</dd>
+          <dt>Drive</dt><dd>${o.drive_minutes} min from your base</dd>
+          <dt>Est. on site</dt><dd>${o.est_minutes} min</dd>
           <dt>Window</dt><dd>${esc(o.requested_window)}</dd>
           <dt>Customer notes</dt><dd>${esc(o.symptom_notes || 'None')}</dd>
         </dl>
@@ -736,3 +736,150 @@ function jobReport(j, veh, cust, q, dx, media, pay, events, contractor) {
 }
 
 module.exports = { page, intake, quoteView, bookedView, techPicker, techBoard, diagnosisForm, adminHome, jobReport, esc, money, jobRef, symLabel };
+
+/* =======================================================================
+   LIVE DISPATCH — the matching engine made visible
+   ======================================================================= */
+
+const GEO = require('./geo');
+const M = require('./match');
+
+function dispatchView(live, contractors, focus, focusVeh, ranked, offers) {
+  const W = 640, H = 440;
+  const offerByC = Object.fromEntries(offers.map((o) => [o.contractor_id, o]));
+
+  /* metro reference points, drawn faintly so the pins have context */
+  const refs = GEO.LOCALITIES.map((l) => {
+    const p = GEO.project(l, W, H);
+    return `<circle cx="${p.x}" cy="${p.y}" r="1.6" fill="var(--g300)"/>`;
+  }).join('');
+
+  const jobPt = focus ? GEO.project({ lat: focus.lat, lng: focus.lng }, W, H) : null;
+
+  /* lines from every contractor who got an offer, to the job */
+  const links = focus ? contractors.map((c) => {
+    const o = offerByC[c.id];
+    if (!o) return '';
+    const p = GEO.project({ lat: c.base_lat, lng: c.base_lng }, W, H);
+    const stroke = o.status === 'accepted' ? 'var(--green)'
+      : o.status === 'sent' ? 'var(--accent)' : 'var(--g300)';
+    const dash = o.status === 'accepted' ? '' : 'stroke-dasharray="4 4"';
+    return `<line x1="${p.x}" y1="${p.y}" x2="${jobPt.x}" y2="${jobPt.y}"
+      stroke="${stroke}" stroke-width="${o.status === 'accepted' ? 2.2 : 1.3}" ${dash} opacity=".8"/>`;
+  }).join('') : '';
+
+  const pins = contractors.map((c) => {
+    const p = GEO.project({ lat: c.base_lat, lng: c.base_lng }, W, H);
+    const r = ranked.find((x) => x.contractor.id === c.id);
+    const o = offerByC[c.id];
+    const fill = o && o.status === 'accepted' ? 'var(--green)'
+      : o && o.status === 'sent' ? 'var(--accent)'
+        : r && r.eligible ? 'var(--g500)' : 'var(--g300)';
+    const label = c.legal_name.split(' ')[0];
+    return `<g>
+      <circle cx="${p.x}" cy="${p.y}" r="7.5" fill="${fill}" stroke="#fff" stroke-width="2"/>
+      <text x="${p.x}" y="${p.y + 21}" text-anchor="middle" font-size="10.5"
+        fill="var(--g500)" font-family="var(--sans)" font-weight="560">${esc(label)}</text>
+    </g>`;
+  }).join('');
+
+  const jobPin = focus ? `<g>
+    <circle cx="${jobPt.x}" cy="${jobPt.y}" r="16" fill="var(--ink)" opacity=".08"/>
+    <circle cx="${jobPt.x}" cy="${jobPt.y}" r="9" fill="var(--ink)" stroke="#fff" stroke-width="2.5"/>
+    <text x="${jobPt.x}" y="${jobPt.y - 17}" text-anchor="middle" font-size="11"
+      fill="var(--ink)" font-family="var(--sans)" font-weight="640">${esc(jobRef(focus.id))}</text>
+  </g>` : '';
+
+  const map = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;background:var(--g50)">
+    ${refs}${links}${pins}${jobPin}</svg>`;
+
+  /* ranked candidate table — the audit trail of why each mechanic was or wasn't offered */
+  const rows = ranked.map((r) => {
+    const o = offerByC[r.contractor.id];
+    const b = r.breakdown || {};
+    const state = o
+      ? (o.status === 'accepted' ? '<span class="badge go">Accepted</span>'
+        : o.status === 'sent' ? '<span class="badge live"><i></i>Offered · wave ' + (o.wave + 1) + '</span>'
+          : o.status === 'declined' ? '<span class="badge stop">Declined</span>'
+            : '<span class="badge mute">Expired</span>')
+      : r.eligible ? '<span class="badge mute">In queue</span>'
+        : '<span class="badge stop">Not eligible</span>';
+
+    const why = r.eligible
+      ? `<span style="color:var(--g500)">near ${b.proximity ?? 0}` +
+        (b.partsReady ? ` · parts ${b.partsReady}` : ' · no parts') +
+        ` · room ${b.headroom ?? 0}` +
+        (b.experience ? ` · done ${b.experience}` : '') + `</span>`
+      : `<span style="color:var(--red)">${esc(r.reasons.join(' · '))}</span>`;
+
+    return `<tr>
+      <td style="font-weight:560">${esc(r.contractor.legal_name)}<div style="font-size:12.5px;color:var(--g500);font-weight:440">${esc(r.contractor.base_label)}</div></td>
+      <td class="num">${r.eligible ? r.drive_minutes + ' min' : '—'}</td>
+      <td class="num">${r.eligible ? '<b>' + r.score + '</b>' : '—'}</td>
+      <td style="font-size:12.5px">${why}</td>
+      <td>${state}</td>
+      <td class="num" style="text-align:right">${o ? money(o.payout_cents) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const liveList = live.length ? live.map((j) => `
+    <a href="/admin/dispatch?job=${j.id}" class="slot ${focus && focus.id === j.id ? 'sel' : ''}"
+       style="display:block;margin-bottom:8px">
+      <b>${esc(jobRef(j.id))} · ${esc(symLabel(j.symptom_code))}</b>
+      <span>${esc(j.year)} ${esc(j.make)} ${esc(j.model)} · ${esc((GEO.byCode[j.zone] || {}).label || j.zone)}</span>
+    </a>`).join('')
+    : `<div class="empty" style="padding:26px 0">Nothing live right now</div>`;
+
+  const eligibleCount = ranked.filter((r) => r.eligible).length;
+
+  const body = `<div class="shell">
+    <div class="page-head"><h1>Live dispatch</h1>
+      <p>Who was offered each job, and the reason. Ranking is capability and distance only — declining an offer never affects it.</p></div>
+
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;margin-top:22px" class="dispatch-grid">
+      <div>
+        <div class="panel"><div class="panel-h"><h2>Twin Cities metro</h2>
+          <span class="meta">${contractors.length} mechanics${focus ? ' · ' + eligibleCount + ' eligible' : ''}</span></div>
+          ${map}
+          <div class="panel-b" style="border-top:1px solid var(--g100);display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--g500)">
+            <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:var(--ink);display:inline-block"></i>Job</span>
+            <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block"></i>Offered</span>
+            <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:var(--green);display:inline-block"></i>Accepted</span>
+            <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:var(--g500);display:inline-block"></i>Eligible, not yet offered</span>
+            <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:9px;height:9px;border-radius:50%;background:var(--g300);display:inline-block"></i>Not eligible</span>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Candidate ranking</h2>
+          ${focus ? `<span class="meta">${esc(jobRef(focus.id))} · ${esc(symLabel(focus.symptom_code))}</span>` : ''}</div>
+          <div class="scroll-x"><table class="tbl">
+            <thead><tr><th>Mechanic</th><th>Drive</th><th>Score</th><th>Why</th><th>Status</th><th style="text-align:right">Payout</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="6"><div class="empty">No live job selected</div></td></tr>'}</tbody>
+          </table></div>
+          <div class="panel-b" style="border-top:1px solid var(--g100);padding-top:16px">
+            ${notice('info', 'info', 'How the wave works', `Offers go to the top ${M.WAVE_SIZE} eligible mechanics at once. If nobody accepts inside ${M.WAVE_SECONDS} seconds, the offer widens to the next ${M.WAVE_SIZE}. After ${M.MAX_WAVES} waves with no taker, the card hold is released automatically and nobody is charged.`)}
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel"><div class="panel-h"><h2>Live jobs</h2></div>
+          <div class="panel-b">${liveList}</div></div>
+
+        ${focus ? `<div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Selected</h2></div>
+          <div class="panel-b"><dl class="dl" style="grid-template-columns:110px 1fr">
+            <dt>Job</dt><dd class="mono">${esc(jobRef(focus.id))}</dd>
+            <dt>Service</dt><dd>${esc(symLabel(focus.symptom_code))}</dd>
+            <dt>Vehicle</dt><dd>${esc(focusVeh.year)} ${esc(focusVeh.make)} ${esc(focusVeh.model)}</dd>
+            <dt>Area</dt><dd>${esc((GEO.byCode[focus.zone] || {}).label || focus.zone)}</dd>
+            <dt>Est. on site</dt><dd>${focus.est_minutes} min</dd>
+            <dt>Window</dt><dd>${esc(focus.requested_window)}</dd>
+          </dl></div></div>` : ''}
+      </div>
+    </div>
+    <style>@media(max-width:900px){.dispatch-grid{grid-template-columns:1fr!important}}</style>
+  </div>`;
+  return page('Live dispatch', 'admin', body);
+}
+
+module.exports.dispatchView = dispatchView;

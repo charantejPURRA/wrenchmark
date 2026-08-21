@@ -22,6 +22,14 @@ CREATE TABLE IF NOT EXISTS contractors (
   agreement_signed_at TEXT,
   service_zones TEXT,
   job_types_approved TEXT,
+  vehicle_classes_approved TEXT,
+  parts_stocked TEXT,
+  base_label TEXT,
+  base_lat REAL,
+  base_lng REAL,
+  max_drive_minutes INTEGER DEFAULT 40,
+  max_minutes_per_day INTEGER DEFAULT 480,
+  training_completed_at TEXT,
   status TEXT DEFAULT 'active',
   created_at TEXT DEFAULT (datetime('now'))
 );
@@ -54,6 +62,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   contractor_id INTEGER REFERENCES contractors(id),
   service_address TEXT,
   zone TEXT,
+  lat REAL,
+  lng REAL,
+  est_minutes INTEGER,
   symptom_code TEXT NOT NULL,
   symptom_notes TEXT,
   requested_window TEXT,
@@ -83,8 +94,13 @@ CREATE TABLE IF NOT EXISTS offers (
   job_id INTEGER NOT NULL REFERENCES jobs(id),
   contractor_id INTEGER NOT NULL REFERENCES contractors(id),
   payout_cents INTEGER,
+  wave INTEGER DEFAULT 0,
+  score REAL,
+  drive_minutes INTEGER,
+  breakdown TEXT,
   status TEXT DEFAULT 'sent',
   sent_at TEXT DEFAULT (datetime('now')),
+  expires_at TEXT,
   responded_at TEXT
 );
 
