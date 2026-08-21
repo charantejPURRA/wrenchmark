@@ -1,0 +1,4 @@
+node_modules/
+wrenchmark.db*
+uploads/*
+!uploads/.gitkeep

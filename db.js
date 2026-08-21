@@ -1,0 +1,172 @@
+const Database = require('better-sqlite3');
+const path = require('path');
+
+const db = new Database(path.join(__dirname, 'wrenchmark.db'));
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS contractors (
+  id INTEGER PRIMARY KEY,
+  legal_name TEXT NOT NULL,
+  entity_name TEXT,
+  entity_type TEXT,
+  ein_last4 TEXT,
+  phone TEXT,
+  license_number TEXT,
+  license_expiry TEXT,
+  insurance_carrier TEXT,
+  insurance_policy TEXT,
+  insurance_expiry TEXT,
+  coi_on_file INTEGER DEFAULT 0,
+  agreement_signed_at TEXT,
+  service_zones TEXT,
+  job_types_approved TEXT,
+  status TEXT DEFAULT 'active',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS vehicles (
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  vin TEXT,
+  year INTEGER,
+  make TEXT,
+  model TEXT,
+  trim TEXT,
+  vehicle_class TEXT,
+  odometer_last INTEGER,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+  contractor_id INTEGER REFERENCES contractors(id),
+  service_address TEXT,
+  zone TEXT,
+  symptom_code TEXT NOT NULL,
+  symptom_notes TEXT,
+  requested_window TEXT,
+  status TEXT DEFAULT 'quoted',
+  outcome TEXT,
+  abort_reason_code TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  accepted_at TEXT,
+  arrived_at TEXT,
+  completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS quotes (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER NOT NULL REFERENCES jobs(id),
+  version INTEGER DEFAULT 1,
+  labor_cents INTEGER DEFAULT 0,
+  parts_cents INTEGER DEFAULT 0,
+  trip_cents INTEGER DEFAULT 0,
+  total_cents INTEGER DEFAULT 0,
+  presented_at TEXT DEFAULT (datetime('now')),
+  accepted_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS offers (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER NOT NULL REFERENCES jobs(id),
+  contractor_id INTEGER NOT NULL REFERENCES contractors(id),
+  payout_cents INTEGER,
+  status TEXT DEFAULT 'sent',
+  sent_at TEXT DEFAULT (datetime('now')),
+  responded_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS diagnoses (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER NOT NULL REFERENCES jobs(id),
+  vin_confirmed TEXT,
+  odometer INTEGER,
+  fault_codes TEXT,
+  system TEXT,
+  component TEXT,
+  findings_notes TEXT,
+  labor_hours_est REAL,
+  severity TEXT,
+  recommendation TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS diagnosis_media (
+  id INTEGER PRIMARY KEY,
+  diagnosis_id INTEGER NOT NULL REFERENCES diagnoses(id),
+  url TEXT NOT NULL,
+  media_role TEXT,
+  captured_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS parts_lines (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER NOT NULL REFERENCES jobs(id),
+  part_number TEXT,
+  description TEXT,
+  qty REAL DEFAULT 1,
+  unit_cost_cents INTEGER DEFAULT 0,
+  source TEXT
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER NOT NULL REFERENCES jobs(id),
+  provider_ref TEXT,
+  authorized_cents INTEGER DEFAULT 0,
+  captured_cents INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'none',
+  authorized_at TEXT,
+  captured_at TEXT,
+  released_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS job_events (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER REFERENCES jobs(id),
+  contractor_id INTEGER REFERENCES contractors(id),
+  event_type TEXT NOT NULL,
+  payload TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS sms_outbox (
+  id INTEGER PRIMARY KEY,
+  to_phone TEXT,
+  body TEXT,
+  job_id INTEGER,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS rate_card (
+  id INTEGER PRIMARY KEY,
+  symptom_code TEXT NOT NULL,
+  vehicle_class TEXT NOT NULL,
+  labor_cents INTEGER NOT NULL,
+  parts_cents INTEGER NOT NULL,
+  trip_cents INTEGER NOT NULL,
+  payout_pct REAL DEFAULT 0.65,
+  mobile_eligible INTEGER DEFAULT 1,
+  UNIQUE(symptom_code, vehicle_class)
+);
+`);
+
+function logEvent(job_id, contractor_id, event_type, payload) {
+  db.prepare(
+    `INSERT INTO job_events (job_id, contractor_id, event_type, payload) VALUES (?,?,?,?)`
+  ).run(job_id, contractor_id || null, event_type, payload ? JSON.stringify(payload) : null);
+}
+
+module.exports = { db, logEvent };

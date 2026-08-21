@@ -1,0 +1,17 @@
+{
+  "name": "wrenchmark",
+  "version": "0.1.0",
+  "description": "Mobile mechanic dispatch prototype — MN pilot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.2.1",
+    "multer": "^2.2.0"
+  }
+}
