@@ -43,9 +43,9 @@ function page(title, nav, body, extraJs = '') {
   <a class="brand" href="/">Wrenchmark<span>.</span></a>
   <div class="nav-links">
     <a href="/" class="${nav === 'book' ? 'on' : ''}">Book</a>
-    <a href="/tech" class="${nav === 'tech' ? 'on' : ''}">Mechanic</a>
-    <a href="/admin/dispatch" class="${nav === 'admin' ? 'on' : ''}">Dispatch</a>
-    <a href="/admin" class="${nav === 'admin' ? 'on' : ''}">Operations</a>
+    ${nav === 'book' ? '' : `<a href="/tech">Mechanic</a>
+    <a href="/admin/dispatch">Dispatch</a>
+    <a href="/admin">Operations</a>`}
   </div>
 </div></div>
 ${body}
@@ -61,59 +61,39 @@ const notice = (kind, iconName, title, text) =>
    ======================================================================= */
 
 function intake() {
-  const symCards = SYMPTOMS.map((s) => `
-    <label class="sym" data-sym="${s.code}">
-      <input type="radio" name="symptom_code" value="${s.code}">
-      <span class="ic">${ico(s.icon)}</span>
-      <span class="tx"><b>${esc(s.label)}</b><span>${esc(s.blurb)}</span></span>
-    </label>`).join('');
-
+  const yearOpts = YEARS.map((y) => `<option value="${y}">${y}</option>`).join('');
   const slots = [
     ['Today', '12:00 – 4:00 PM'], ['Today', '4:00 – 8:00 PM'],
     ['Tomorrow', '8:00 AM – 12:00 PM'], ['Tomorrow', '12:00 – 4:00 PM'],
-  ].map(([d, t], i) => `
-    <label class="slot" data-slot>
+  ].map(([d, t], i) => `<label class="slot" data-slot>
       <input type="radio" name="requested_window" value="${esc(d + ', ' + t)}" ${i === 0 ? 'checked' : ''}>
-      <b>${esc(d)}</b><span>${esc(t)}</span>
-    </label>`).join('');
-
-  const yearOpts = YEARS.map((y) => `<option value="${y}">${y}</option>`).join('');
+      <b>${esc(d)}</b><span>${esc(t)}</span></label>`).join('');
 
   const body = `
 <div class="shell"><div class="narrow">
 
   <div class="hero" id="hero">
-    <h1>A licensed mechanic, in your driveway.</h1>
-    <p>See a fixed price before anyone is dispatched. If we can't finish it on site, you pay nothing.</p>
+    <h1>Something's wrong with your car. Let's work out what.</h1>
+    <p>Tell us what's happening in your own words. We'll ask a couple of questions, tell you honestly what it's likely to be, and what it should cost — before anyone comes out.</p>
     <div class="pledges">
-      <span class="pledge">${ico('check', 15)} The price you see is the price you pay</span>
-      <span class="pledge">${ico('shield', 15)} No fix, no fee</span>
-      <span class="pledge">${ico('camera', 15)} Photo-documented diagnosis</span>
+      <span class="pledge">${ico('check', 15)} You approve the price before any work</span>
+      <span class="pledge">${ico('shield', 15)} We come to the car</span>
+      <span class="pledge">${ico('camera', 15)} Photos of everything we find</span>
     </div>
   </div>
 
-  <div class="rail" id="rail"><i class="now"></i><i></i><i></i><i></i></div>
+  <div class="talk" id="talk"></div>
 
   <form method="post" action="/book" id="bookform" novalidate>
+    <input type="hidden" name="symptom_code" id="f-symptom">
+    <input type="hidden" name="symptom_notes" id="f-notes">
+    <input type="hidden" name="vehicle_class" id="f-class">
+    <input type="hidden" name="triage_session" id="f-session">
 
-    <!-- STEP 1 -->
-    <section class="step" data-step="1">
-      <div class="step-eyebrow">Step 1 of 4</div>
-      <h1>What's going on?</h1>
-      <p class="sub">Pick the closest match. Your mechanic confirms it on site before any work starts.</p>
-      <div class="sym-grid">${symCards}</div>
-      <div class="f" style="margin-top:18px">
-        <label>Anything else we should know <span class="aside">Optional</span></label>
-        <textarea name="symptom_notes" rows="3" placeholder="Turns over but won't catch. Started this morning after it sat overnight in the cold."></textarea>
-      </div>
-      <button type="button" class="btn btn-wide" data-next disabled>Continue ${ico('arrow', 18)}</button>
-    </section>
-
-    <!-- STEP 2 -->
-    <section class="step hide" data-step="2">
-      <div class="step-eyebrow">Step 2 of 4</div>
-      <h1>Which vehicle?</h1>
-      <p class="sub">We use this to send a mechanic carrying the right parts and tools.</p>
+    <section class="step hide" data-step="vehicle">
+      <div class="step-eyebrow">Your vehicle</div>
+      <h1>Which car is it?</h1>
+      <p class="sub">This tells us the exact parts and how long the job takes on your specific vehicle.</p>
       <div class="panel"><div class="panel-b">
         <div class="grid3">
           <div class="f"><label>Year</label>
@@ -131,42 +111,45 @@ function intake() {
           <div class="f" style="margin-bottom:0"><label>VIN <span class="aside">Optional</span></label>
             <input type="text" name="vin" placeholder="1HGFC2F53GA012345" maxlength="17" autocapitalize="characters"></div>
         </div>
-        <div class="help">A VIN lets us confirm the exact engine and trim before dispatch.</div>
       </div></div>
-      <input type="hidden" name="vehicle_class" id="f-class">
+      <button type="button" class="btn btn-wide" data-next="price" disabled style="margin-top:20px">See what this costs ${ico('arrow', 18)}</button>
+    </section>
+
+    <section class="step hide" data-step="price">
+      <div class="step-eyebrow">Your price</div>
+      <h1>Here's what this costs.</h1>
+      <p class="sub">Two numbers, both honest. Nobody can price a repair before seeing the car — so we price the looking, and give you the range for the fixing.</p>
+      <div id="pricebox"></div>
       <div class="btn-row" style="margin-top:20px">
-        <button type="button" class="btn-back" data-back>${ico('back', 16)} Back</button>
-        <button type="button" class="btn" style="margin-left:auto" data-next disabled>Continue ${ico('arrow', 18)}</button>
+        <button type="button" class="btn-back" data-back="vehicle">${ico('back', 16)} Back</button>
+        <button type="button" class="btn" style="margin-left:auto" data-next="where">Continue ${ico('arrow', 18)}</button>
       </div>
     </section>
 
-    <!-- STEP 3 -->
-    <section class="step hide" data-step="3">
-      <div class="step-eyebrow">Step 3 of 4</div>
-      <h1>Where and when?</h1>
-      <p class="sub">We come to the vehicle. A driveway, a work lot, a street space — all fine.</p>
+    <section class="step hide" data-step="where">
+      <div class="step-eyebrow">Where and when</div>
+      <h1>Where is the car?</h1>
+      <p class="sub">A driveway, a work lot, a street space, a parking ramp — all fine. We bring the shop.</p>
       <div class="panel"><div class="panel-b">
-        <div class="f"><label>Where is the vehicle?</label>
+        <div class="f"><label>Address</label>
           <input type="text" name="service_address" id="f-addr" placeholder="1420 Nicollet Ave, Minneapolis, MN 55403"></div>
-        <div class="f"><label>Service area</label>
-          <select name="zone">${require('./geo').LOCALITIES.map(l => `<option value="${l.code}">${esc(l.label)}</option>`).join('')}</select>
-          <div class="help">We use this to find the mechanics closest to you.</div></div>
+        <div class="f"><label>Area</label>
+          <select name="zone">${require('./geo').LOCALITIES.map(l => `<option value="${l.code}">${esc(l.label)}</option>`).join('')}</select></div>
         <div class="f" style="margin-bottom:0"><label>Arrival window</label>
           <div class="slots">${slots}</div></div>
       </div></div>
       <div class="btn-row" style="margin-top:20px">
-        <button type="button" class="btn-back" data-back>${ico('back', 16)} Back</button>
-        <button type="button" class="btn" style="margin-left:auto" data-next disabled>Continue ${ico('arrow', 18)}</button>
+        <button type="button" class="btn-back" data-back="price">${ico('back', 16)} Back</button>
+        <button type="button" class="btn" style="margin-left:auto" data-next="who" disabled>Continue ${ico('arrow', 18)}</button>
       </div>
     </section>
 
-    <!-- STEP 4 -->
-    <section class="step hide" data-step="4">
-      <div class="step-eyebrow">Step 4 of 4</div>
-      <h1>Where do we send the price?</h1>
-      <p class="sub">No card required to see your quote.</p>
+    <section class="step hide" data-step="who">
+      <div class="step-eyebrow">Last thing</div>
+      <h1>How do we reach you?</h1>
+      <p class="sub">We text you the mechanic's name and photo before they set off. No card needed yet.</p>
       <div class="panel"><div class="panel-b">
-        <div class="f"><label>Full name</label>
+        <div class="f"><label>Your name</label>
           <input type="text" name="name" id="f-name" placeholder="Alex Whitfield"></div>
         <div class="grid2">
           <div class="f" style="margin-bottom:0"><label>Mobile</label>
@@ -175,11 +158,9 @@ function intake() {
             <input type="email" name="email" placeholder="alex@example.com"></div>
         </div>
       </div></div>
-      <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Your request</h2></div>
-        <div class="panel-b"><dl class="dl" id="summary"></dl></div></div>
       <div class="btn-row" style="margin-top:20px">
-        <button type="button" class="btn-back" data-back>${ico('back', 16)} Back</button>
-        <button type="submit" class="btn btn-blue" style="margin-left:auto" id="submitbtn" disabled>See my price ${ico('arrow', 18)}</button>
+        <button type="button" class="btn-back" data-back="where">${ico('back', 16)} Back</button>
+        <button type="submit" class="btn btn-blue" style="margin-left:auto" id="submitbtn" disabled>Book it ${ico('arrow', 18)}</button>
       </div>
     </section>
   </form>
@@ -188,126 +169,281 @@ function intake() {
   const js = `<script>
 const CATALOG = ${JSON.stringify(MAKES)};
 const CLASS_LABEL = ${JSON.stringify(CLASS_LABEL)};
-const SYM = ${JSON.stringify(SYMPTOMS.map((s) => ({ code: s.code, label: s.label })))};
+const $ = (s,r)=>(r||document).querySelector(s);
+const $$ = (s,r)=>Array.from((r||document).querySelectorAll(s));
+const talk = $('#talk');
+let session = null, priced = null;
 
-const $ = (s, r) => (r || document).querySelector(s);
-const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
-let step = 1;
-const TOTAL = 4;
+const money = c => '$' + (Number(c||0)/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+const wait = ms => new Promise(r=>setTimeout(r,ms));
 
-function railPaint(){
-  $$('#rail i').forEach((el,i)=>{
-    el.className = (i+1 < step) ? 'done' : (i+1 === step ? 'now' : '');
+function el(html){ const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstElementChild; }
+function scrollDown(){ window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}); }
+
+function push(node){ talk.appendChild(node); scrollDown(); return node; }
+
+/* pacing matters — instant replies read as a script, not a person */
+async function say(lines, leadIn){
+  const t = push(el('<div class="turn"><div class="av">W</div><div class="say"><div class="typing"><i></i><i></i><i></i></div></div></div>'));
+  await wait(560 + Math.min(900, String(lines).length * 9));
+  const arr = Array.isArray(lines) ? lines : [lines];
+  $('.say', t).innerHTML = (leadIn ? '<div class="lead-in">'+leadIn+'</div>' : '') +
+    arr.map(l => '<p>'+l+'</p>').join('');
+  scrollDown();
+  return t;
+}
+function me(text){
+  return push(el('<div class="turn me"><div class="av">You</div><div class="say"><p>'+
+    text.replace(/</g,'&lt;')+'</p></div></div>'));
+}
+function alertBox(level, text){
+  const icon = level==='stop'
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none"/></svg>';
+  push(el('<div class="alert '+level+'">'+icon+'<div><b>'+
+    (level==='stop'?'Please don\\'t drive it':'Take it easy on this one')+'</b>'+text+'</div></div>'));
+}
+
+/* ---------- opening ---------- */
+async function open(){
+  await say(["Hi — sorry you're dealing with this. Car trouble is a horrible surprise."]);
+  await say(["First, and more important than anything about the car: <b>are you somewhere safe right now?</b>"]);
+  choices([
+    {label:"Yes, it's parked at home or work", v:'safe'},
+    {label:"I'm pulled over on the road", v:'roadside'},
+    {label:"It's somewhere else, but I'm fine", v:'other'},
+  ], onSafety);
+}
+
+function choices(opts, cb, multi){
+  const wrap = push(el('<div class="picks"></div>'));
+  const chosen = new Set();
+  let done = null;
+  opts.forEach((o)=>{
+    const b = el('<button type="button" class="pick">'+o.label+'</button>');
+    b.addEventListener('click', ()=>{
+      if (!multi){
+        $$('.pick', wrap).forEach(x=>x.classList.add('gone'));
+        me(o.label); return cb([o.v], o.label);
+      }
+      if (chosen.has(o.v)) { chosen.delete(o.v); b.classList.remove('on'); }
+      else { chosen.add(o.v); b.classList.add('on'); }
+      done.disabled = chosen.size === 0;
+      done.textContent = chosen.size > 1 ? chosen.size + ' selected — continue' : 'Continue';
+    });
+    wrap.appendChild(b);
   });
+  if (multi){
+    done = el('<button type="button" class="btn btn-sm" style="align-self:flex-start;margin-top:5px" disabled>Continue</button>');
+    done.addEventListener('click', ()=>{
+      const picked = opts.filter(o=>chosen.has(o.v));
+      $$('.pick', wrap).forEach(x=>x.classList.add('gone'));
+      done.remove();
+      me(picked.map(p=>p.label).join(' · '));
+      cb(picked.map(p=>p.v), picked.map(p=>p.label).join(' · '));
+    });
+    wrap.appendChild(done);
+  }
+  scrollDown();
 }
-function show(n){
-  step = n;
-  $$('[data-step]').forEach(s => s.classList.toggle('hide', +s.dataset.step !== n));
-  $('#hero').classList.toggle('hide', n !== 1);
-  railPaint(); validate();
-  if (n === 4) buildSummary();
-  window.scrollTo({top:0, behavior:'smooth'});
-}
-$$('[data-next]').forEach(b => b.addEventListener('click', () => show(step+1)));
-$$('[data-back]').forEach(b => b.addEventListener('click', () => show(step-1)));
 
-/* --- step 1: symptom cards --- */
-$$('.sym').forEach(card => card.addEventListener('click', () => {
-  $$('.sym').forEach(c => c.classList.remove('sel'));
-  card.classList.add('sel');
-  $('input', card).checked = true;
+let safeLocation = 'safe';
+async function onSafety(v){
+  safeLocation = v;
+  $('#hero').classList.add('hide');
+  if (v === 'roadside'){
+    await say([
+      "Then please get well clear of traffic first — behind a barrier if there is one, and hazards on.",
+      "We can come to a roadside, but if you're on a highway shoulder a tow to somewhere safer is usually the better call. Your insurance or AAA can arrange it, and we'll meet the car wherever it lands."
+    ]);
+  }
+  await say(["Now — tell me what's happening, in whatever words come naturally. You don't need to know any car terms."]);
+  askFree();
+}
+
+function askFree(){
+  const box = push(el(
+    '<div class="saybox"><textarea id="freetext" rows="3" placeholder="It made a grinding noise when I braked this morning and now the pedal feels soft…"></textarea>'+
+    '<button type="button" class="btn" id="sendfree"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 14 0M13 6l6 6-6 6"/></svg></button></div>'));
+  const ta = $('#freetext', box), btn = $('#sendfree', box);
+  ta.focus();
+  const go = async () => {
+    const txt = ta.value.trim();
+    if (txt.length < 3) return;
+    box.remove(); me(txt);
+    await start(txt);
+  };
+  btn.addEventListener('click', go);
+  ta.addEventListener('keydown', e => { if(e.key==='Enter' && (e.metaKey||e.ctrlKey)) go(); });
+}
+
+async function start(text){
+  $('#f-notes').value = text;
+  const r = await fetch('/api/triage/start', {
+    method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({ text, safe_location: safeLocation })
+  }).then(r=>r.json());
+  session = r.session; $('#f-session').value = r.session;
+  if (r.restate) await say([r.restate]);
+  else await say(["Got it. Let me narrow this down."]);
+  if (r.safety) alertBox(r.safety.level, r.safety.text);
+  if (r.question) ask(r.question, r.step, r.total);
+  else finish([{label:'General diagnosis', explain:'', confidence:60, lead:true, code:'other'}]);
+}
+
+async function ask(q, step, total){
+  await say([q.prompt], (total>1 && q.id!=='board') ? 'Question '+step+' of '+total : null);
+  choices(q.options.map((o,i)=>({label:o.label, v:i})), async (idxs)=>{
+    const r = await fetch('/api/triage/answer', {
+      method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({ session, question_id: q.id, option_indexes: idxs })
+    }).then(r=>r.json());
+    if (r.safety && !document.querySelector('.alert.'+r.safety.level)) alertBox(r.safety.level, r.safety.text);
+    if (!r.done) return ask(r.question, r.step, r.total);
+    $('#f-symptom').value = r.lead_code;
+    finish(r);
+  }, !!q.multi);
+}
+
+async function finish(r){
+  const findings = r.findings || [];
+  if (r.certain === false){
+    await say([r.message]);
+    if (findings.length){
+      await say(["If I had to say what to rule out first, it would be these — a starting point for the mechanic, not a claim."]);
+      renderFindings(findings);
+    }
+  } else {
+    await say([
+      "Thanks — that's enough to give you a straight answer.",
+      "Here's what I think is going on. Your mechanic confirms it on site with the car in front of them, and nothing is replaced until you have seen the evidence."
+    ]);
+    renderFindings(findings);
+  }
+  await say(["Now — which car is it? Parts and labour depend on your exact vehicle."]);
+  show('vehicle');
+}
+
+function renderFindings(findings){
+  const box = push(el('<div class="picks" style="margin-bottom:20px"></div>'));
+  findings.forEach(f=>{
+    box.appendChild(el(
+      '<div class="finding'+(f.lead?' lead':'')+'">'+
+        '<div class="top"><b>'+f.label+'</b><span class="pc">'+
+          (f.confidence!=null ? f.band+' · '+f.confidence+'%' : f.band)+'</span></div>'+
+        (f.explain?'<div class="why">'+f.explain+'</div>':'')+
+        (f.confidence!=null?'<div class="meter"><i style="width:0%"></i></div>':'')+
+      '</div>'));
+  });
+  setTimeout(function(){
+    $$('.finding .meter i', box).forEach(function(m,i){
+      if (findings[i].confidence!=null) m.style.width = findings[i].confidence + '%';
+    });
+  }, 90);
+}
+
+/* ---------- steps ---------- */
+function show(name){
+  $$('[data-step]').forEach(s => s.classList.toggle('hide', s.dataset.step !== name));
   validate();
+  setTimeout(scrollDown, 60);
+}
+$$('[data-next]').forEach(b => b.addEventListener('click', async () => {
+  if (b.dataset.next === 'price') { await loadPrice(); }
+  show(b.dataset.next);
+  window.scrollTo({top: document.body.scrollHeight - window.innerHeight - 200, behavior:'smooth'});
 }));
+$$('[data-back]').forEach(b => b.addEventListener('click', () => show(b.dataset.back)));
 
-/* --- step 3: time slots --- */
-$$('[data-slot]').forEach(s => s.addEventListener('click', () => {
-  $$('[data-slot]').forEach(x => x.classList.remove('sel'));
-  s.classList.add('sel'); $('input', s).checked = true;
-}));
-$('[data-slot]').classList.add('sel');
+/* cascading vehicle selection */
+const yearEl=$('#f-year'), makeEl=$('#f-make'), modelEl=$('#f-model'), classEl=$('#f-class');
+function reset(el,ph){ el.innerHTML='<option value="">'+ph+'</option>'; el.disabled=true; el.value=''; }
+yearEl.addEventListener('change', ()=>{
+  reset(makeEl,'Select make'); reset(modelEl,'Select make first'); hideChip();
+  const y=+yearEl.value; if(!y){ reset(makeEl,'Select year first'); return validate(); }
+  const makes=Object.keys(CATALOG).filter(mk=>CATALOG[mk].some(r=>y>=r[2]&&y<=r[3])).sort();
+  makeEl.innerHTML='<option value="">Select make</option>'+makes.map(m=>'<option>'+m+'</option>').join('');
+  makeEl.disabled=false; validate();
+});
+makeEl.addEventListener('change', ()=>{
+  reset(modelEl,'Select model'); hideChip();
+  const y=+yearEl.value, mk=makeEl.value;
+  if(!mk){ reset(modelEl,'Select make first'); return validate(); }
+  const models=CATALOG[mk].filter(r=>y>=r[2]&&y<=r[3]).map(r=>r[0]).sort((a,b)=>a.localeCompare(b));
+  modelEl.innerHTML='<option value="">Select model</option>'+models.map(m=>'<option>'+m+'</option>').join('');
+  modelEl.disabled=false; validate();
+});
+modelEl.addEventListener('change', ()=>{
+  const mk=makeEl.value, md=modelEl.value;
+  if(!md){ hideChip(); return validate(); }
+  const row=CATALOG[mk].find(r=>r[0]===md);
+  classEl.value=row?row[1]:'standard';
+  $('#vchip-name').textContent=yearEl.value+' '+mk+' '+md;
+  $('#vchip-class').textContent='Recognized · priced as '+(CLASS_LABEL[classEl.value]||classEl.value).toLowerCase();
+  $('#vchip').classList.add('show'); validate();
+});
+function hideChip(){ $('#vchip').classList.remove('show'); classEl.value=''; }
 
-/* --- step 2: cascading vehicle selection --- */
-const yearEl = $('#f-year'), makeEl = $('#f-make'), modelEl = $('#f-model'), classEl = $('#f-class');
-
-function resetSelect(el, placeholder){
-  el.innerHTML = '<option value="">' + placeholder + '</option>';
-  el.disabled = true; el.value = '';
+async function loadPrice(){
+  const r = await fetch('/api/triage/price', {
+    method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({ session, make: makeEl.value, model: modelEl.value })
+  }).then(r=>r.json());
+  priced = r;
+  const hasRange = r.rangeable && r.low_cents && r.high_cents;
+  $('#pricebox').innerHTML =
+    '<div class="pricecard">'+
+      '<div class="band dark"><div class="k">Diagnosis, at your location</div>'+
+        '<div class="n">'+money(r.diagnostic_cents)+'</div>'+
+        '<div class="sub">Fixed. A certified mechanic scans it, tests it, photographs what they find, and tells you exactly what is wrong — whether or not you go ahead with the repair.</div></div>'+
+      (hasRange
+        ? '<div class="band"><div class="k">Likely repair, if it is what we think</div>'+
+          '<div class="n">'+money(r.low_cents)+' - '+money(r.high_cents)+'</div>'+
+          '<div class="sub">Parts and labour for your specific vehicle. You see the exact figure with photos attached, and approve it before a single bolt is touched.</div>'+
+          '<div class="credit">'+
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'+
+            'The '+money(r.diagnostic_cents)+' comes off the repair</div></div>'
+        : '<div class="band"><div class="k">Repair cost</div>'+
+          '<div class="n" style="font-size:23px;letter-spacing:-.025em">We are not going to guess</div>'+
+          '<div class="sub">'+(r.no_range_reason||'')+' You will see the exact figure with photos before anything is touched, and you can walk away paying only for the diagnosis.</div>'+
+          '<div class="credit">'+
+            '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'+
+            'The '+money(r.diagnostic_cents)+' comes off the repair</div></div>')+
+      (r.mobile_eligible===false ? '<div class="band" style="background:var(--amber-wash)">'+
+        '<div class="k" style="color:#5E3B00;font-weight:600">This one needs a lift</div>'+
+        '<div class="sub" style="color:#5E3B00">We will diagnose it at your location, then route the repair to a shop we have vetted. Same price, same guarantee.</div></div>' : '')+
+    '</div>';
 }
-yearEl.addEventListener('change', () => {
-  resetSelect(makeEl, 'Select make'); resetSelect(modelEl, 'Select make first');
-  hideChip();
-  const y = +yearEl.value;
-  if (!y) { resetSelect(makeEl, 'Select year first'); validate(); return; }
-  const makes = Object.keys(CATALOG).filter(mk =>
-    CATALOG[mk].some(r => y >= r[2] && y <= r[3])).sort();
-  makeEl.innerHTML = '<option value="">Select make</option>' +
-    makes.map(m => '<option>' + m + '</option>').join('');
-  makeEl.disabled = false;
-  validate();
-});
-makeEl.addEventListener('change', () => {
-  resetSelect(modelEl, 'Select model'); hideChip();
-  const y = +yearEl.value, mk = makeEl.value;
-  if (!mk) { resetSelect(modelEl, 'Select make first'); validate(); return; }
-  const models = CATALOG[mk].filter(r => y >= r[2] && y <= r[3])
-    .map(r => r[0]).sort((a,b) => a.localeCompare(b));
-  modelEl.innerHTML = '<option value="">Select model</option>' +
-    models.map(m => '<option>' + m + '</option>').join('');
-  modelEl.disabled = false;
-  validate();
-});
-modelEl.addEventListener('change', () => {
-  const mk = makeEl.value, md = modelEl.value;
-  if (!md) { hideChip(); validate(); return; }
-  const row = CATALOG[mk].find(r => r[0] === md);
-  classEl.value = row ? row[1] : 'standard';
-  $('#vchip-name').textContent = yearEl.value + ' ' + mk + ' ' + md;
-  $('#vchip-class').textContent = 'Recognized · priced as ' + (CLASS_LABEL[classEl.value] || classEl.value).toLowerCase();
-  $('#vchip').classList.add('show');
-  validate();
-});
-function hideChip(){ $('#vchip').classList.remove('show'); classEl.value = ''; }
 
-/* --- validation --- */
-function stepValid(n){
-  if (n === 1) return !!$('input[name=symptom_code]:checked');
-  if (n === 2) return !!(yearEl.value && makeEl.value && modelEl.value && classEl.value);
-  if (n === 3) return $('#f-addr').value.trim().length > 4;
-  if (n === 4) return $('#f-name').value.trim().length > 1 && $('#f-phone').value.replace(/\\D/g,'').length >= 10;
+/* validation */
+function ok(name){
+  if(name==='vehicle') return !!(yearEl.value && makeEl.value && modelEl.value && classEl.value);
+  if(name==='where') return $('#f-addr').value.trim().length>4;
+  if(name==='who') return $('#f-name').value.trim().length>1 && $('#f-phone').value.replace(/\D/g,'').length>=10;
   return true;
 }
 function validate(){
-  const sec = $('[data-step="' + step + '"]');
-  if (!sec) return;
-  const btn = sec.querySelector('[data-next]') || $('#submitbtn');
-  if (btn) btn.disabled = !stepValid(step);
+  const cur=$$('[data-step]').find(s=>!s.classList.contains('hide'));
+  if(!cur) return;
+  const btn=cur.querySelector('[data-next]')||cur.querySelector('#submitbtn');
+  if(btn) btn.disabled=!ok(cur.dataset.step);
 }
-$$('#bookform input, #bookform select, #bookform textarea')
-  .forEach(el => { el.addEventListener('input', validate); el.addEventListener('change', validate); });
-
-/* --- phone formatting --- */
-$('#f-phone').addEventListener('input', e => {
-  const d = e.target.value.replace(/\\D/g,'').slice(0,10);
-  e.target.value = d.length > 6 ? '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6)
-    : d.length > 3 ? '(' + d.slice(0,3) + ') ' + d.slice(3) : d;
+$$('#bookform input, #bookform select').forEach(el=>{
+  el.addEventListener('input',validate); el.addEventListener('change',validate);
+});
+$('#f-phone').addEventListener('input', e=>{
+  const d=e.target.value.replace(/\D/g,'').slice(0,10);
+  e.target.value = d.length>6 ? '('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6)
+    : d.length>3 ? '('+d.slice(0,3)+') '+d.slice(3) : d;
   validate();
 });
+$$('[data-slot]').forEach(s=>s.addEventListener('click',()=>{
+  $$('[data-slot]').forEach(x=>x.classList.remove('sel'));
+  s.classList.add('sel'); $('input',s).checked=true;
+}));
+$('[data-slot]').classList.add('sel');
 
-/* --- summary on step 4 --- */
-function buildSummary(){
-  const symCode = ($('input[name=symptom_code]:checked')||{}).value;
-  const sym = (SYM.find(s => s.code === symCode) || {}).label || '—';
-  const slot = ($('input[name=requested_window]:checked')||{}).value || '—';
-  const rows = [
-    ['Service', sym],
-    ['Vehicle', yearEl.value + ' ' + makeEl.value + ' ' + modelEl.value],
-    ['Location', $('#f-addr').value],
-    ['Arrival', slot],
-  ];
-  $('#summary').innerHTML = rows.map(r =>
-    '<dt>' + r[0] + '</dt><dd>' + r[1].replace(/</g,'&lt;') + '</dd>').join('');
-}
-railPaint(); validate();
+open();
 <\/script>`;
 
   return page('Book a mechanic', 'book', body, js);
@@ -315,45 +451,50 @@ railPaint(); validate();
 
 /* ---------- quote ---------- */
 
-function quoteView(job, veh, q, eligible) {
-  const body = `<div class="shell"><div class="narrow">
-  <div class="rail" style="padding-top:26px"><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i></div>
-  <div class="step-eyebrow">Your quote · ${esc(jobRef(job.id))}</div>
-  <h1 style="font-size:34px;font-weight:670;letter-spacing:-.035em;margin:0 0 9px">This is the price you'll pay.</h1>
-  <p class="sub" style="color:var(--g500);font-size:16.5px;margin:0 0 26px">Not an estimate, not a starting point. It doesn't move once the work begins.</p>
+function quoteView(job, veh, q, eligible, findings = [], assessment = null) {
+  const lead = findings.find((f) => f.lead) || findings[0];
+  const hasRange = !!(q.low_cents && q.high_cents);
 
-  <div class="panel">
-    <div class="quote-top">
-      <div class="lbl">Total, all in</div>
-      <div class="amt">${money(q.total_cents)}</div>
-      <div class="cap">${esc(veh.year)} ${esc(veh.make)} ${esc(veh.model)} · ${esc(symLabel(job.symptom_code))}</div>
+  const body = `<div class="shell"><div class="narrow" style="padding-top:34px">
+  <div class="step-eyebrow">Your quote · ${esc(jobRef(job.id))}</div>
+  <h1 style="font-size:32px;font-weight:670;letter-spacing:-.035em;margin:0 0 9px">Two numbers, both honest.</h1>
+  <p class="sub" style="color:var(--g500);font-size:16.5px;margin:0 0 26px;line-height:1.45">Nobody can price a repair before seeing the car. So we price the looking — fixed — and give you the range for the fixing. You approve the exact figure before anything is touched.</p>
+
+  <div class="pricecard">
+    <div class="band dark">
+      <div class="k">Diagnosis, at your location</div>
+      <div class="n">${money(q.total_cents)}</div>
+      <div class="sub">A licensed mechanic scans it, tests it, photographs what they find, and explains it — whether or not you go ahead with the repair. This is the only thing we place a hold for today.</div>
     </div>
-    <div class="lines">
-      <div class="line"><div class="k"><b>Labor</b>Certified mechanic, on site</div><div class="v">${money(q.labor_cents)}</div></div>
-      <div class="line"><div class="k"><b>Parts</b>${q.parts_cents ? 'OEM or equivalent' : 'None required'}</div><div class="v">${money(q.parts_cents)}</div></div>
-      <div class="line"><div class="k"><b>Trip</b>Travel to your location</div><div class="v">${money(q.trip_cents)}</div></div>
-      <div class="line sum"><div class="k">Total</div><div class="v">${money(q.total_cents)}</div></div>
-    </div>
-    <div class="panel-b" style="padding-top:6px">
-      ${eligible
-      ? notice('ok', 'shield', 'Nothing is charged today', "We place a hold on your card and release it to the mechanic only once the job is finished. If they can't complete it on site, the hold drops and you pay nothing.")
-      : notice('warn', 'alert', 'This one needs a lift', 'That repair needs shop equipment we can\'t bring to a driveway. We\'ll route it to a verified shop nearby — same fixed price, same guarantee.')}
-      <form method="post" action="/jobs/${job.id}/accept" style="margin-top:18px">
-        <button type="submit" class="btn btn-wide btn-blue">${ico('card', 18)} Accept price and book</button>
-      </form>
-      <div class="help" style="text-align:center;margin-top:12px">Cancel any time before the mechanic arrives.</div>
-    </div>
+    ${hasRange ? `<div class="band">
+      <div class="k">Likely repair${lead ? ' — ' + esc(lead.label.toLowerCase()) : ''}</div>
+      <div class="n">${money(q.low_cents)} – ${money(q.high_cents)}</div>
+      <div class="sub">For your ${esc(veh.year)} ${esc(veh.make)} ${esc(veh.model)}. You'll see the exact figure with photos attached, and nothing happens until you tap approve.</div>
+      <div class="credit">${ico('check', 14)} The ${money(q.total_cents)} comes off the repair</div>
+    </div>` : `<div class="band">
+      <div class="k">Repair cost</div>
+      <div class="n" style="font-size:23px;letter-spacing:-.025em">We're not going to guess</div>
+      <div class="sub">${esc(assessment && assessment.no_range_reason ? assessment.no_range_reason : '')} You'll see the exact figure with photos before anything is touched, and you can walk away paying only for the diagnosis.</div>
+      <div class="credit">${ico('check', 14)} The ${money(q.total_cents)} comes off the repair</div>
+    </div>`}
+    ${!eligible ? `<div class="band" style="background:var(--amber-wash)">
+      <div class="k" style="color:#5E3B00;font-weight:600">This one needs a lift</div>
+      <div class="sub" style="color:#5E3B00">We'll diagnose it where it stands, then route the repair to a shop we've vetted. Same price, same guarantee.</div></div>` : ''}
   </div>
 
-  <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>What you get</h2></div><div class="panel-b">
-    <dl class="dl">
-      <dt>Reference</dt><dd class="mono">${esc(jobRef(job.id))}</dd>
-      <dt>Location</dt><dd>${esc(job.service_address)}</dd>
-      <dt>Arrival window</dt><dd>${esc(job.requested_window)}</dd>
-      <dt>Documentation</dt><dd>Photos of the fault, the part, and the finished work</dd>
-      <dt>Mechanic</dt><dd>Licensed, insured, and background-checked</dd>
-    </dl>
-  </div></div>
+  <form method="post" action="/jobs/${job.id}/accept" style="margin-top:20px">
+    <button type="submit" class="btn btn-wide btn-blue">${ico('card', 18)} Book the diagnosis · ${money(q.total_cents)}</button>
+  </form>
+  <div class="help" style="text-align:center;margin-top:12px">A hold, not a charge. Cancel any time before the mechanic sets off.</div>
+
+  <div class="panel" style="margin-top:22px"><div class="panel-h"><h2>What happens next</h2></div>
+    <div class="panel-b"><dl class="dl">
+      <dt>Right away</dt><dd>We offer the job to licensed mechanics near you carrying the right parts</dd>
+      <dt>Before they arrive</dt><dd>You get their name, photo, and credentials by text</dd>
+      <dt>On site</dt><dd>They diagnose and photograph everything — the fault, the part, the work</dd>
+      <dt>Then</dt><dd>You see the evidence and the exact price, and decide</dd>
+      <dt>If we can't finish</dt><dd>Every hold released. You pay nothing.</dd>
+    </dl></div></div>
 </div></div>`;
   return page('Your quote', 'book', body);
 }
@@ -491,7 +632,7 @@ function techBoard(c, offers, active) {
   return page('Mechanic', 'tech', body);
 }
 
-function diagnosisForm(job, veh, cust, q) {
+function diagnosisForm(job, veh, cust, q, findings = [], answers = []) {
   const abortOpts = [
     ['no_tools', "Right tools weren't on the truck"],
     ['not_safe', 'Not safe to work at this location'],
@@ -501,79 +642,131 @@ function diagnosisForm(job, veh, cust, q) {
     ['vehicle_inaccessible', "Couldn't access the vehicle"],
   ].map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('');
 
-  const dropField = (name, label, hint) => `
+  const codeOpts = Object.entries(T_LABELS).map(([c, l]) =>
+    `<option value="${c}" ${c === job.symptom_code ? 'selected' : ''}>${esc(l)}</option>`).join('');
+
+  const drop = (name, label, hint) => `
     <div class="drop" data-drop>
       <input type="file" name="${name}" accept="image/*" capture="environment">
-      <b data-drop-label>${esc(label)}</b><span>${esc(hint)}</span>
+      <b data-drop-label>${esc(label)}</b><span>${esc(hint)}</span></div>`;
+
+  const brief = findings.length ? `
+    <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>What the customer reported</h2>
+      <span class="meta">Before you arrived</span></div>
+      <div class="panel-b">
+        <p style="margin:0 0 15px;font-size:15.5px;font-style:italic;color:var(--g700)">"${esc(job.symptom_notes || '')}"</p>
+        ${answers.length ? `<dl class="dl" style="margin-bottom:16px">${answers.map((a) => `
+          <dt>${esc((T_QUESTIONS[a.question_id] || {}).prompt || a.question_id)}</dt>
+          <dd style="font-weight:580">${esc(a.label || '')}</dd>`).join('')}</dl>` : ''}
+        <div style="font-size:13px;color:var(--g500);font-weight:520;margin-bottom:9px">Our triage predicted</div>
+        ${findings.map((f) => `<div class="finding${f.lead ? ' lead' : ''}" style="margin-bottom:8px">
+          <div class="top"><b>${esc(f.label)}</b><span class="pc">${f.confidence}%</span></div>
+          <div class="meter"><i style="width:${f.confidence}%"></i></div></div>`).join('')}
+        ${notice('info', 'info', 'Confirm or correct it', 'Set the actual finding below. Whether triage was right is the number we track — being wrong is useful data, not a mark against you.')}
+      </div></div>` : '';
+
+  const deferRow = (i) => `
+    <div class="grid3" style="margin-bottom:10px">
+      <div class="f" style="margin-bottom:0"><input type="text" name="deferred_system_${i}" placeholder="System (e.g. Tyres)"></div>
+      <div class="f" style="margin-bottom:0"><input type="text" name="deferred_note_${i}" placeholder="What you noticed"></div>
+      <div class="f" style="margin-bottom:0"><select name="deferred_urgency_${i}">
+        <option value="monitor">Keep an eye on it</option>
+        <option value="soon">Worth planning for</option>
+        <option value="now">Needs attention soon</option></select></div>
     </div>`;
 
   const body = `<div class="shell"><div class="narrow">
     <div class="page-head">
       <h1>Work order ${esc(jobRef(job.id))}</h1>
-      <p>${esc(symLabel(job.symptom_code))} · ${esc(veh.year)} ${esc(veh.make)} ${esc(veh.model)}</p>
+      <p>${esc(veh.year)} ${esc(veh.make)} ${esc(veh.model)} · ${esc(job.service_address)}</p>
     </div>
 
     <div class="panel" style="margin-top:20px"><div class="panel-h"><h2>Job detail</h2>
-      <span class="meta">${money(q.total_cents)} quoted</span></div>
+      <span class="meta">${money(q.total_cents)} diagnostic</span></div>
       <div class="panel-b"><dl class="dl">
         <dt>Customer</dt><dd>${esc(cust.name)} · ${esc(cust.phone)}</dd>
-        <dt>Location</dt><dd>${esc(job.service_address)}</dd>
-        <dt>Reported</dt><dd>${esc(job.symptom_notes || 'No notes')}</dd>
+        <dt>Window</dt><dd>${esc(job.requested_window)}</dd>
       </dl></div></div>
+
+    ${brief}
 
     <form method="post" action="/tech/job/${job.id}/diagnosis" enctype="multipart/form-data" id="dxform">
 
       <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Vehicle</h2></div>
         <div class="panel-b"><div class="grid2">
           <div class="f" style="margin-bottom:0"><label>VIN</label>
-            <input type="text" name="vin_confirmed" value="${esc(veh.vin || '')}" placeholder="1HGFC2F53GA012345" maxlength="17" autocapitalize="characters"></div>
+            <input type="text" name="vin_confirmed" value="${esc(veh.vin || '')}" maxlength="17" autocapitalize="characters" placeholder="1HGFC2F53GA012345"></div>
           <div class="f" style="margin-bottom:0"><label>Odometer</label>
-            <input type="number" name="odometer" value="${esc(veh.odometer_last || '')}" placeholder="98400" inputmode="numeric"></div>
+            <input type="number" name="odometer" value="${esc(veh.odometer_last || '')}" inputmode="numeric" placeholder="98400"></div>
         </div></div></div>
 
-      <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Diagnosis</h2></div>
+      <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>What you actually found</h2></div>
         <div class="panel-b">
+          <div class="f"><label>Actual fault</label><select name="actual_code">${codeOpts}</select>
+            <div class="help">If this differs from the prediction above, that's exactly what we need to know.</div></div>
           <div class="grid2">
             <div class="f"><label>System</label><input type="text" name="system" placeholder="Starting &amp; charging"></div>
             <div class="f"><label>Component</label><input type="text" name="component" placeholder="Starter motor"></div>
           </div>
           <div class="grid3">
-            <div class="f"><label>Fault codes</label><input type="text" name="fault_codes" placeholder="P0562, P0300"></div>
-            <div class="f"><label>Labor hours</label><input type="text" name="labor_hours_est" placeholder="1.5" inputmode="decimal"></div>
+            <div class="f"><label>Fault codes</label><input type="text" name="fault_codes" placeholder="P0562"></div>
+            <div class="f"><label>Labour hours</label><input type="text" name="labor_hours_est" placeholder="1.5" inputmode="decimal"></div>
             <div class="f"><label>Severity</label><select name="severity">
               <option value="routine">Routine</option><option value="urgent">Urgent</option><option value="safety">Safety</option></select></div>
           </div>
-          <div class="f"><label>Findings</label>
-            <textarea name="findings_notes" rows="3" placeholder="No crank. 12.4V at battery, no click at solenoid. Bench tested starter — open circuit."></textarea></div>
+          <div class="f"><label>Findings — the customer reads this</label>
+            <textarea name="findings_notes" rows="3" placeholder="No crank. 12.4V at rest, 9.8V cranking. No click at solenoid. Bench tested starter — open circuit."></textarea></div>
           <div class="f" style="margin-bottom:0"><label>Recommendation</label>
             <input type="text" name="recommendation" placeholder="Replace starter motor"></div>
         </div></div>
 
-      <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Photos</h2>
-        <span class="meta">Required to close as complete</span></div>
+      <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Evidence</h2>
+        <span class="meta">The customer sees these before deciding</span></div>
         <div class="panel-b"><div class="grid3">
-          ${dropField('photo_fault', 'The fault', 'What failed')}
-          ${dropField('photo_part', 'The part', 'Old and new')}
-          ${dropField('photo_completed', 'Completed work', 'Installed and buttoned up')}
+          ${drop('photo_fault', 'The fault', 'What failed')}
+          ${drop('photo_part', 'The part', 'Old and new')}
+          ${drop('photo_completed', 'Work area', 'Optional now')}
         </div></div></div>
+
+      <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Repair quote</h2>
+        <span class="meta">Customer approves before you start</span></div>
+        <div class="panel-b">
+          <div class="grid2">
+            <div class="f"><label>Parts ($)</label><input type="text" name="repair_parts" placeholder="290.00" inputmode="decimal" id="rp"></div>
+            <div class="f"><label>Labour ($)</label><input type="text" name="repair_labor" placeholder="260.00" inputmode="decimal" id="rl"></div>
+          </div>
+          <div style="background:var(--g50);border-radius:10px;padding:15px 17px">
+            <div style="display:flex;align-items:baseline"><span style="font-size:14px;color:var(--g500)">Total</span>
+              <b style="margin-left:auto;font-size:19px;font-variant-numeric:tabular-nums" id="rtot">$0.00</b></div>
+            <div style="display:flex;align-items:baseline;margin-top:5px"><span style="font-size:14px;color:var(--green)">Less diagnostic already held</span>
+              <b style="margin-left:auto;font-size:15px;color:var(--green);font-variant-numeric:tabular-nums">− ${money(q.total_cents)}</b></div>
+            <div style="display:flex;align-items:baseline;margin-top:9px;padding-top:9px;border-top:1px solid var(--g200)">
+              <span style="font-size:14.5px;font-weight:600">Customer pays</span>
+              <b style="margin-left:auto;font-size:23px;font-variant-numeric:tabular-nums" id="rbal">$0.00</b></div>
+          </div>
+          <div class="help">Leave both blank if nothing needs replacing — the customer is charged the diagnostic only and told it's good news.</div>
+        </div></div>
+
+      <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Noticed, but not fixing today</h2>
+        <span class="meta">Logged, never upsold</span></div>
+        <div class="panel-b">
+          ${deferRow(1)}${deferRow(2)}${deferRow(3)}
+          <div class="help">These go on the customer's vehicle record with no charge and no pressure. Do not raise them as a sale on site.</div>
+        </div></div>
 
       <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Outcome</h2></div>
         <div class="panel-b">
-          <label class="sym" data-out="completed" style="margin-bottom:9px">
-            <input type="radio" name="outcome" value="completed" checked>
+          <label class="sym" data-out="diagnosed" style="margin-bottom:9px">
+            <input type="radio" name="outcome" value="diagnosed" checked>
             <span class="ic">${ico('check')}</span>
-            <span class="tx"><b>Completed</b><span>Work finished on site — customer charged ${money(q.total_cents)}</span></span>
-          </label>
+            <span class="tx"><b>Diagnosed</b><span>Send the quote to the customer for approval</span></span></label>
           <label class="sym" data-out="aborted">
             <input type="radio" name="outcome" value="aborted">
             <span class="ic">${ico('alert')}</span>
-            <span class="tx"><b>Couldn't complete</b><span>Card hold released — customer charged nothing</span></span>
-          </label>
+            <span class="tx"><b>Couldn't complete</b><span>Every hold released — customer charged nothing</span></span></label>
           <div class="f hide" id="abortwrap" style="margin-top:17px;margin-bottom:0">
             <label>Why not?</label>
-            <select name="abort_reason_code"><option value="">Select a reason</option>${abortOpts}</select>
-            <div class="help">This is the field that tells us which jobs to route to a shop instead.</div>
-          </div>
+            <select name="abort_reason_code"><option value="">Select a reason</option>${abortOpts}</select></div>
         </div></div>
 
       <button type="submit" class="btn btn-wide btn-blue" style="margin-top:20px">Submit work order</button>
@@ -581,27 +774,33 @@ function diagnosisForm(job, veh, cust, q) {
   </div></div>`;
 
   const js = `<script>
-const $$ = s => Array.from(document.querySelectorAll(s));
-$$('[data-out]').forEach(card => card.addEventListener('click', () => {
-  $$('[data-out]').forEach(c => c.classList.remove('sel'));
-  card.classList.add('sel');
-  card.querySelector('input').checked = true;
-  document.getElementById('abortwrap').classList.toggle('hide', card.dataset.out !== 'aborted');
+const $$=s=>Array.from(document.querySelectorAll(s));
+$$('[data-out]').forEach(c=>c.addEventListener('click',()=>{
+  $$('[data-out]').forEach(x=>x.classList.remove('sel'));
+  c.classList.add('sel'); c.querySelector('input').checked=true;
+  document.getElementById('abortwrap').classList.toggle('hide', c.dataset.out!=='aborted');
 }));
-document.querySelector('[data-out="completed"]').classList.add('sel');
-$$('[data-drop]').forEach(d => {
-  const input = d.querySelector('input');
-  input.addEventListener('change', () => {
-    if (input.files && input.files[0]) {
-      d.classList.add('has');
-      d.querySelector('[data-drop-label]').textContent = input.files[0].name.slice(0, 22);
-    }
-  });
+document.querySelector('[data-out="diagnosed"]').classList.add('sel');
+$$('[data-drop]').forEach(d=>{
+  const i=d.querySelector('input');
+  i.addEventListener('change',()=>{ if(i.files&&i.files[0]){ d.classList.add('has');
+    d.querySelector('[data-drop-label]').textContent=i.files[0].name.slice(0,20);} });
 });
+const CREDIT=${q.total_cents};
+function calc(){
+  const p=parseFloat(document.getElementById('rp').value||0)*100;
+  const l=parseFloat(document.getElementById('rl').value||0)*100;
+  const t=(p||0)+(l||0);
+  const f=c=>'$'+(c/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  document.getElementById('rtot').textContent=f(t);
+  document.getElementById('rbal').textContent=f(Math.max(0,t-CREDIT));
+}
+['rp','rl'].forEach(id=>document.getElementById(id).addEventListener('input',calc));
 <\/script>`;
-
   return page('Work order', 'tech', body, js);
 }
+
+const T_LABELS = require('./triage').LABELS;
 
 /* =======================================================================
    OPERATIONS
@@ -883,3 +1082,239 @@ function dispatchView(live, contractors, focus, focusVeh, ranked, offers) {
 }
 
 module.exports.dispatchView = dispatchView;
+
+/* =======================================================================
+   CUSTOMER JOB PAGE — where the brand lives after the sale
+   ======================================================================= */
+
+const STAGES = [
+  { key: 'booked',   lbl: 'Booked' },
+  { key: 'matched',  lbl: 'Mechanic accepts' },
+  { key: 'diagnosed',lbl: 'Diagnosed' },
+  { key: 'approved', lbl: 'You approve' },
+  { key: 'done',     lbl: 'Complete' },
+];
+
+function stageIndex(j) {
+  if (j.status === 'completed' || j.status === 'aborted') return 4;
+  if (j.status === 'approved') return 3;
+  if (j.status === 'awaiting_approval') return 2;
+  if (j.status === 'accepted') return 1;
+  return 0;
+}
+
+function initials(name) {
+  return String(name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
+function customerJob(b, media, history) {
+  const { job: j, cust, veh, diag, repair, contractor, dx, pays, deferred } = b;
+  const idx = stageIndex(j);
+
+  const tracker = `<div class="tracker">${STAGES.map((s, i) => `
+    <div class="node ${i < idx ? 'done' : i === idx ? 'on' : ''}">
+      <div class="dot">${i < idx ? ico('check', 14) : `<span style="font-size:11.5px;font-weight:640">${i + 1}</span>`}</div>
+      <div class="lbl">${esc(s.lbl)}</div>
+    </div>`).join('')}</div>`;
+
+  /* the ranked triage assessment, shown back to them */
+  let findings = [];
+  try { findings = JSON.parse(j.triage_findings || '[]'); } catch { findings = []; }
+  let answers = [];
+  try { answers = JSON.parse(j.triage_answers || '[]'); } catch { answers = []; }
+
+  const proBlock = contractor ? `
+    <div class="panel"><div class="panel-h"><h2>Your mechanic</h2>
+      <span class="meta"><span class="badge go">Verified</span></span></div>
+      <div class="panel-b"><div class="pro">
+        <div class="face">${esc(initials(contractor.legal_name))}</div>
+        <div class="who"><b>${esc(contractor.legal_name)}</b>
+          <span>${esc(contractor.entity_name)} · based in ${esc(contractor.base_label)}</span>
+          <div class="creds">
+            <span class="badge">Licensed ${esc(contractor.license_number)}</span>
+            <span class="badge go">Insured to ${esc(contractor.insurance_expiry)}</span>
+            <span class="badge">Background checked</span>
+          </div>
+        </div>
+      </div></div></div>` : `
+    <div class="panel"><div class="panel-h"><h2>Finding your mechanic</h2>
+      <span class="meta"><span class="badge live"><i></i>In progress</span></span></div>
+      <div class="panel-b">
+        <p style="margin:0;color:var(--g500)">We're offering this to the licensed mechanics nearest you who are approved for this job and carrying the right parts. You'll get a text with their name and details the moment one accepts.</p>
+        ${notice('ok', 'shield', 'Nothing charged if nobody can come', "If no mechanic can cover your window, the hold on your card is released automatically and you're charged nothing.")}
+      </div></div>`;
+
+  /* the approval moment */
+  const balance = repair ? Math.max(0, repair.total_cents - repair.credit_cents) : 0;
+  const approvalBlock = (repair && !repair.accepted_at && !repair.declined_at) ? `
+    <div class="approve" style="margin-top:16px">
+      <div class="hd">Your decision — nothing happens until you say so</div>
+      <div class="bd">
+        ${dx ? `<div style="margin-bottom:17px">
+          <div style="font-size:13px;color:var(--g500);font-weight:520">What we found</div>
+          <div style="font-size:18px;font-weight:610;letter-spacing:-.022em;margin-top:3px">${esc(dx.recommendation || dx.component || 'See findings')}</div>
+          <div style="font-size:14.5px;color:var(--g500);margin-top:6px;line-height:1.5">${esc(dx.findings_notes || '')}</div>
+        </div>` : ''}
+        ${media.length ? `<div class="shots" style="margin-bottom:18px">${media.map((m) => `
+          <figure class="shot"><img src="${esc(m.url)}" alt="${esc(m.media_role)}">
+          <figcaption>${esc(m.media_role.replace(/_/g, ' '))}</figcaption></figure>`).join('')}</div>` : ''}
+        <div class="lines" style="padding:0 0 12px">
+          <div class="line"><div class="k">Parts</div><div class="v">${money(repair.parts_cents)}</div></div>
+          <div class="line"><div class="k">Labour</div><div class="v">${money(repair.labor_cents)}</div></div>
+          <div class="line"><div class="k" style="color:var(--green)">Diagnostic already paid</div>
+            <div class="v" style="color:var(--green)">− ${money(repair.credit_cents)}</div></div>
+        </div>
+        <div style="display:flex;align-items:baseline;border-top:1.5px solid var(--g200);padding-top:15px">
+          <div style="font-size:15px;font-weight:600">You pay</div>
+          <div style="margin-left:auto"><span class="big">${money(balance)}</span>
+            <span class="strike">${money(repair.total_cents)}</span></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:20px">
+          <form method="post" action="/j/${esc(j.public_token)}/approve" style="flex:1">
+            <button class="btn btn-wide btn-green">Approve — go ahead</button></form>
+          <form method="post" action="/j/${esc(j.public_token)}/decline">
+            <button class="btn btn-ghost">Not today</button></form>
+        </div>
+        <div class="help" style="text-align:center;margin-top:12px">Decline and you pay the ${money(repair.credit_cents)} diagnostic only. The report and photos are yours to take to any shop.</div>
+      </div>
+    </div>` : '';
+
+  const authorized = pays.filter((p) => p.status === 'authorized').reduce((s, p) => s + p.authorized_cents, 0);
+  const captured = pays.filter((p) => p.status === 'captured').reduce((s, p) => s + p.captured_cents, 0);
+
+  const moneyBlock = `
+    <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Money</h2></div>
+      <div class="lines">
+        <div class="line"><div class="k"><b>Diagnostic</b>Fixed, agreed up front</div>
+          <div class="v">${money(diag ? diag.total_cents : 0)}</div></div>
+        ${repair ? `<div class="line"><div class="k"><b>Repair</b>${repair.accepted_at ? 'Approved by you' : repair.declined_at ? 'Declined' : 'Awaiting your decision'}</div>
+          <div class="v">${money(repair.total_cents)}</div></div>` : ''}
+        <div class="line"><div class="k">On hold, not charged</div><div class="v">${money(authorized)}</div></div>
+        <div class="line sum"><div class="k">Charged so far</div><div class="v">${money(captured)}</div></div>
+      </div>
+      <div class="panel-b" style="padding-top:4px"><div class="help">A hold is not a charge. Money only moves when work you approved is finished.</div></div>
+    </div>`;
+
+  const triageBlock = findings.length ? `
+    <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>What you told us</h2>
+      ${j.prediction_correct !== null && j.prediction_correct !== undefined
+      ? `<span class="meta">${j.prediction_correct ? '<span class="badge go">We called it right</span>' : '<span class="badge">Turned out different</span>'}</span>` : ''}</div>
+      <div class="panel-b">
+        <p style="margin:0 0 14px;font-size:15px;color:var(--g700);font-style:italic">"${esc(j.symptom_notes || '')}"</p>
+        ${answers.length ? `<dl class="dl" style="margin-bottom:16px">${answers.map((a) => `
+          <dt>${esc((T_QUESTIONS[a.question_id] || {}).prompt || a.question_id)}</dt>
+          <dd>${esc(a.label || '')}</dd>`).join('')}</dl>` : ''}
+        <div style="font-size:13px;color:var(--g500);font-weight:520;margin-bottom:9px">Our assessment before we came out</div>
+        ${findings.map((f) => `
+          <div class="finding${f.lead ? ' lead' : ''}" style="margin-bottom:8px">
+            <div class="top"><b>${esc(f.label)}</b><span class="pc">${f.confidence}% likely</span></div>
+            ${f.explain ? `<div class="why">${esc(f.explain)}</div>` : ''}
+            <div class="meter"><i style="width:${f.confidence}%"></i></div>
+          </div>`).join('')}
+      </div></div>` : '';
+
+  const URGENCY = { now: ['now', 'Needs attention soon'], soon: ['soon', 'Worth planning for'], monitor: ['', 'Keep an eye on it'] };
+  const deferredBlock = deferred.length ? `
+    <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Noticed, but not fixed</h2>
+      <span class="meta">No charge, no pressure</span></div>
+      <div class="panel-b">
+        <p style="margin:0 0 16px;color:var(--g500);font-size:14.5px">Things your mechanic spotted while working. None of it was touched, and none of it is on your bill — it's here so you know, and so it's on record.</p>
+        ${deferred.map((d) => {
+    const u = URGENCY[d.urgency] || URGENCY.monitor;
+    return `<div class="defer ${u[0]}"><b>${esc(d.system || 'Noted')} — ${esc(u[1])}</b><span>${esc(d.note)}</span></div>`;
+  }).join('')}
+      </div></div>` : '';
+
+  const historyBlock = history.length ? `
+    <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>This vehicle's history</h2>
+      <span class="meta">${history.length} previous visit${history.length > 1 ? 's' : ''}</span></div>
+      <div class="scroll-x"><table class="tbl">
+        <thead><tr><th>Date</th><th>Service</th><th>What was done</th></tr></thead>
+        <tbody>${history.map((h) => `<tr>
+          <td class="mono" style="white-space:nowrap">${esc((h.completed_at || '').slice(0, 10))}</td>
+          <td style="font-weight:540">${esc(symLabel(h.symptom_code))}</td>
+          <td style="color:var(--g500)">${esc(h.recommendation || h.component || '—')}</td>
+        </tr>`).join('')}</tbody></table></div></div>` : '';
+
+  const doneBlock = j.status === 'completed' ? `
+    ${notice('ok', 'check', j.outcome === 'diagnostic_only' ? 'Diagnosed, nothing replaced' : 'All finished',
+    j.outcome === 'diagnostic_only'
+      ? `You were charged the diagnostic only. The full report and every photo are yours — take them to any shop you like.`
+      : `Charged exactly what you approved. Your report, photos, and warranty are on this page permanently.`)}` : '';
+
+  const abortBlock = j.status === 'aborted' ? `
+    ${notice('warn', 'alert', 'We could not finish this one',
+    `Every hold on your card has been released and you have not been charged. A coordinator will call you with the next option.`)}` : '';
+
+  const safetyBlock = j.safety_level === 'stop' ? `
+    ${notice('stop', 'alert', 'Please do not drive this car', 'Based on what you described, driving it risks making the repair much worse, or worse than that. Leave it where it is — we come to the vehicle.')}` : '';
+
+  const body = `<div class="shell"><div class="narrow">
+    <div class="page-head" style="padding-bottom:0">
+      <div style="display:flex;align-items:center;gap:11px;margin-bottom:7px">
+        <h1 style="margin:0;font-size:27px">${esc(veh.year)} ${esc(veh.make)} ${esc(veh.model)}</h1>
+      </div>
+      <p>${esc(jobRef(j.id))} · ${esc(symLabel(j.symptom_code))} · ${esc(j.service_address)}</p>
+    </div>
+
+    <div style="margin-top:26px">${tracker}</div>
+    ${safetyBlock}${doneBlock}${abortBlock}
+
+    ${approvalBlock}
+
+    <div style="margin-top:16px">${proBlock}</div>
+
+    ${j.status === 'accepted' || j.status === 'approved' ? `
+    <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>When</h2></div>
+      <div class="panel-b"><dl class="dl">
+        <dt>Arrival window</dt><dd>${esc(j.requested_window)}</dd>
+        <dt>If we're late</dt><dd>Your diagnostic is free. That's the whole policy.</dd>
+      </dl></div></div>` : ''}
+
+    ${moneyBlock}
+    ${media.length && !(repair && !repair.accepted_at && !repair.declined_at) ? `
+    <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Photos from your job</h2></div>
+      <div class="panel-b"><div class="shots" style="margin-top:0">${media.map((m) => `
+        <figure class="shot"><img src="${esc(m.url)}" alt="${esc(m.media_role)}">
+        <figcaption>${esc(m.media_role.replace(/_/g, ' '))}</figcaption></figure>`).join('')}</div></div></div>` : ''}
+    ${deferredBlock}
+    ${triageBlock}
+    ${historyBlock}
+
+    <div class="panel" style="margin-top:16px"><div class="panel-h"><h2>Something not right?</h2></div>
+      <div class="panel-b">
+        <p style="margin:0 0 14px;color:var(--g500);font-size:14.5px">If the problem comes back, tell us. We look at our own work first — we don't send you to a dealership.</p>
+        <a class="btn btn-ghost btn-sm" href="tel:+16125550100">Call us</a>
+      </div></div>
+  </div></div>`;
+  return page('Your job ' + jobRef(j.id), 'book', body);
+}
+
+const T_QUESTIONS = require('./triage').QUESTIONS;
+module.exports.customerJob = customerJob;
+
+
+function completeForm(job, veh, cust, q) {
+  const repair = require('./db').db.prepare(
+    `SELECT * FROM quotes WHERE job_id=? AND stage='repair' ORDER BY id DESC`).get(job.id);
+  const body = `<div class="shell"><div class="narrow">
+    <div class="page-head"><h1>${esc(jobRef(job.id))} — approved</h1>
+      <p>${esc(veh.year)} ${esc(veh.make)} ${esc(veh.model)} · ${esc(cust.name)}</p></div>
+    ${notice('ok', 'check', 'The customer approved this repair', `They agreed to ${money(repair ? repair.total_cents : 0)}. Go ahead with the work, then photograph the finished job below.`)}
+    <form method="post" action="/tech/job/${job.id}/complete" enctype="multipart/form-data" class="panel" style="margin-top:16px">
+      <div class="panel-h"><h2>Finish the job</h2></div>
+      <div class="panel-b">
+        <div class="drop" data-drop><input type="file" name="photo_completed" accept="image/*" capture="environment">
+          <b data-drop-label>Photo of the completed work</b><span>Installed and buttoned up</span></div>
+        <button type="submit" class="btn btn-wide btn-green" style="margin-top:18px">Mark complete and charge</button>
+        <div class="help" style="text-align:center;margin-top:11px">Captures ${money(repair ? repair.total_cents : 0)} — exactly the approved figure, not a cent more.</div>
+      </div></form>
+  </div></div>`;
+  const js = `<script>
+const d=document.querySelector('[data-drop]'), i=d.querySelector('input');
+i.addEventListener('change',()=>{ if(i.files&&i.files[0]){ d.classList.add('has');
+  d.querySelector('[data-drop-label]').textContent=i.files[0].name.slice(0,22);} });
+<\/script>`;
+  return page('Complete job', 'tech', body, js);
+}
+module.exports.completeForm = completeForm;

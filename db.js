@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS jobs (
   status TEXT DEFAULT 'quoted',
   outcome TEXT,
   abort_reason_code TEXT,
+  triage_answers TEXT,
+  triage_findings TEXT,
+  predicted_code TEXT,
+  predicted_confidence INTEGER,
+  actual_code TEXT,
+  prediction_correct INTEGER,
+  safe_location TEXT,
+  safety_level TEXT,
+  public_token TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   accepted_at TEXT,
   arrived_at TEXT,
@@ -81,12 +90,17 @@ CREATE TABLE IF NOT EXISTS quotes (
   id INTEGER PRIMARY KEY,
   job_id INTEGER NOT NULL REFERENCES jobs(id),
   version INTEGER DEFAULT 1,
+  stage TEXT DEFAULT 'repair',
   labor_cents INTEGER DEFAULT 0,
   parts_cents INTEGER DEFAULT 0,
   trip_cents INTEGER DEFAULT 0,
+  credit_cents INTEGER DEFAULT 0,
   total_cents INTEGER DEFAULT 0,
+  low_cents INTEGER,
+  high_cents INTEGER,
   presented_at TEXT DEFAULT (datetime('now')),
-  accepted_at TEXT
+  accepted_at TEXT,
+  declined_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS offers (
@@ -140,6 +154,7 @@ CREATE TABLE IF NOT EXISTS parts_lines (
 CREATE TABLE IF NOT EXISTS payments (
   id INTEGER PRIMARY KEY,
   job_id INTEGER NOT NULL REFERENCES jobs(id),
+  stage TEXT DEFAULT 'repair',
   provider_ref TEXT,
   authorized_cents INTEGER DEFAULT 0,
   captured_cents INTEGER DEFAULT 0,
@@ -155,6 +170,16 @@ CREATE TABLE IF NOT EXISTS job_events (
   contractor_id INTEGER REFERENCES contractors(id),
   event_type TEXT NOT NULL,
   payload TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS deferred_items (
+  id INTEGER PRIMARY KEY,
+  job_id INTEGER NOT NULL REFERENCES jobs(id),
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+  system TEXT,
+  note TEXT,
+  urgency TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

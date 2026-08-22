@@ -6,6 +6,8 @@ const { db, logEvent } = require('./db');
 const { classFor } = require('./vehicles');
 const GEO = require('./geo');
 const M = require('./match');
+const T = require('./triage');
+const crypto = require('crypto');
 require('./seed');
 const V = require('./views');
 
@@ -29,22 +31,34 @@ const upload = multer({ storage, limits: { fileSize: 12 * 1024 * 1024 } });
    capture -> paymentIntents.capture, release -> paymentIntents.cancel.
    The authorize/capture split IS the no fix, no fee promise. */
 const payments = {
-  authorize(job_id, cents) {
+  authorize(job_id, cents, stage = 'repair') {
     const ref = 'auth_' + Math.random().toString(36).slice(2, 12);
-    db.prepare(`INSERT INTO payments (job_id, provider_ref, authorized_cents, status, authorized_at)
-                VALUES (?,?,?,'authorized',datetime('now'))`).run(job_id, ref, cents);
-    logEvent(job_id, null, 'payment_authorized', { cents, ref });
+    db.prepare(`INSERT INTO payments (job_id, stage, provider_ref, authorized_cents, status, authorized_at)
+                VALUES (?,?,?,?,'authorized',datetime('now'))`).run(job_id, stage, ref, cents);
+    logEvent(job_id, null, 'payment_authorized', { stage, cents, ref });
     return ref;
   },
-  capture(job_id, cents) {
-    db.prepare(`UPDATE payments SET captured_cents=?, status='captured', captured_at=datetime('now')
-                WHERE job_id=?`).run(cents, job_id);
-    logEvent(job_id, null, 'payment_captured', { cents });
+  capture(job_id, stage = null) {
+    const rows = stage
+      ? db.prepare(`SELECT * FROM payments WHERE job_id=? AND stage=? AND status='authorized'`).all(job_id, stage)
+      : db.prepare(`SELECT * FROM payments WHERE job_id=? AND status='authorized'`).all(job_id);
+    let total = 0;
+    for (const p of rows) {
+      db.prepare(`UPDATE payments SET captured_cents=authorized_cents, status='captured',
+                  captured_at=datetime('now') WHERE id=?`).run(p.id);
+      total += p.authorized_cents;
+    }
+    if (total) logEvent(job_id, null, 'payment_captured', { stage: stage || 'all', cents: total });
+    return total;
   },
-  release(job_id) {
-    db.prepare(`UPDATE payments SET status='released', released_at=datetime('now'), captured_cents=0
-                WHERE job_id=?`).run(job_id);
-    logEvent(job_id, null, 'payment_released', { reason: 'job not completed' });
+  release(job_id, stage = null, reason = 'job not completed') {
+    const q = stage
+      ? db.prepare(`UPDATE payments SET status='released', released_at=datetime('now'), captured_cents=0
+                    WHERE job_id=? AND stage=? AND status='authorized'`)
+      : db.prepare(`UPDATE payments SET status='released', released_at=datetime('now'), captured_cents=0
+                    WHERE job_id=? AND status='authorized'`);
+    stage ? q.run(job_id, stage) : q.run(job_id);
+    logEvent(job_id, null, 'payment_released', { stage: stage || 'all', reason });
   },
 };
 
@@ -55,38 +69,168 @@ function sendSms(to_phone, body, job_id) {
 
 /* ---------------- customer flow ---------------- */
 
-app.get('/', (req, res) => res.send(V.intake()));
+/* ---------------- triage API ---------------- */
+const sessions = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 45 * 60 * 1000;
+  for (const [k, v] of sessions) if (v.t < cutoff) sessions.delete(k);
+}, 300000);
+
+const DIAGNOSTIC_CENTS = 8900;
+
+app.post('/api/triage/start', express.json(), async (req, res) => {
+  const { text, safe_location } = req.body || {};
+  const id = crypto.randomUUID();
+
+  const claude = await T.detectWithClaude(text);
+  let scores = claude ? claude.scores : T.detect(text);
+  const thin = Object.keys(scores).length === 0 ||
+    (claude ? claude.unsure : T.looksUnsure(text));
+  const safety = T.safetyFrom(text);
+
+  const sess = { t: Date.now(), scores, text, safe_location, answers: [],
+    informative: 0, safety, plan: [], step: 0, boardShown: false };
+  sessions.set(id, sess);
+
+  // Nothing to go on? Show the board instead of guessing. This is the path
+  // for "I don't know", which is an honest answer, not a failure.
+  if (thin) {
+    sess.boardShown = true;
+    return res.json({
+      session: id, safety: safety ? { level: safety.level, text: safety.text } : null,
+      restate: claude && claude.restate && !claude.unsure ? claude.restate : null,
+      question: { ...T.BOARD, id: 'board' }, step: 1, total: 4, board: true,
+    });
+  }
+
+  sess.plan = T.planFor(scores);
+  res.json({
+    session: id,
+    restate: claude ? claude.restate : null,
+    safety: safety ? { level: safety.level, text: safety.text } : null,
+    question: sess.plan.length ? { id: sess.plan[0], ...T.QUESTIONS[sess.plan[0]] } : null,
+    step: 1, total: sess.plan.length,
+  });
+});
+
+app.post('/api/triage/answer', express.json(), (req, res) => {
+  const { session, question_id, option_indexes } = req.body || {};
+  const s = sessions.get(session);
+  if (!s) return res.status(404).json({ error: 'session expired' });
+
+  const qObj = question_id === 'board' ? T.BOARD : T.QUESTIONS[question_id];
+  const r = T.applyAnswer(s.scores, qObj, option_indexes);
+  s.scores = r.scores;
+  s.informative += r.informative || 0;
+  s.answers.push({ question_id, label: r.answerLabel });
+  s.t = Date.now();
+
+  if (r.safety && (!s.safety || r.safety === 'stop')) {
+    s.safety = { level: r.safety, text: r.safety === 'stop'
+      ? "That's the kind of thing we'd rather you didn't drive on. Leave it where it is — we come to the car."
+      : 'Worth being careful with. Short trips only until someone looks at it.' };
+  }
+
+  // After the board, build a question plan from whatever it revealed.
+  if (question_id === 'board') {
+    s.plan = (r.informative > 0) ? T.planFor(s.scores) : ['driving_change', 'how_long'];
+    s.step = 0;
+    const first = s.plan[0];
+    return res.json({ safety: s.safety, done: false,
+      question: { id: first, ...T.QUESTIONS[first] }, step: 2, total: s.plan.length + 1 });
+  }
+
+  s.step += 1;
+  const nextId = s.plan[s.step];
+  if (nextId) {
+    return res.json({ safety: s.safety, done: false,
+      question: { id: nextId, ...T.QUESTIONS[nextId] },
+      step: s.step + 1 + (s.boardShown ? 1 : 0),
+      total: s.plan.length + (s.boardShown ? 1 : 0) });
+  }
+
+  const out = T.assess(s.scores, s.informative);
+  s.assessment = out;
+  s.lead_code = out.lead_code;
+  res.json({ safety: s.safety, done: true, ...out });
+});
+
+app.post('/api/triage/price', express.json(), (req, res) => {
+  const { session, make, model } = req.body || {};
+  const s = sessions.get(session);
+  if (!s) return res.status(404).json({ error: 'session expired' });
+  const vclass = classFor(make, model);
+  const a = s.assessment || { rangeable: false, lead_code: 'other', no_range_reason: T.NO_RANGE_REASON.other };
+  const code = a.lead_code || 'other';
+  s.vclass = vclass;
+
+  const rate = db.prepare(`SELECT * FROM rate_card WHERE symptom_code=? AND vehicle_class=?`).get(code, vclass);
+  const payload = { diagnostic_cents: DIAGNOSTIC_CENTS, vehicle_class: vclass,
+    mobile_eligible: rate ? !!rate.mobile_eligible : true,
+    rangeable: !!a.rangeable, no_range_reason: a.no_range_reason || null };
+
+  if (a.rangeable && rate) {
+    const mid = rate.labor_cents + rate.parts_cents + rate.trip_cents;
+    payload.low_cents = Math.round(mid * 0.84 / 500) * 500;
+    payload.high_cents = Math.round(mid * 1.18 / 500) * 500;
+  }
+  res.json(payload);
+});
+
+app.get('/', (req, res) => res.send(V.intake()));app.get('/', (req, res) => res.send(V.intake()));
 
 app.post('/book', (req, res) => {
   const b = req.body;
-  // Never trust the class from the client — derive it from the catalogue.
   const vclass = classFor(b.make, b.model);
-  const rate = db.prepare(`SELECT * FROM rate_card WHERE symptom_code=? AND vehicle_class=?`)
-    .get(b.symptom_code, vclass);
+  const code = b.symptom_code || 'other';
+  const rate = db.prepare(`SELECT * FROM rate_card WHERE symptom_code=? AND vehicle_class=?`).get(code, vclass);
   if (!rate) return res.status(400).send('No rate card entry for that job and vehicle type.');
+
+  const sess = b.triage_session ? sessions.get(b.triage_session) : null;
 
   const cust = db.prepare(`INSERT INTO customers (name, phone, email) VALUES (?,?,?)`)
     .run(b.name, b.phone, b.email || null);
   const veh = db.prepare(`INSERT INTO vehicles (customer_id, vin, year, make, model, vehicle_class, odometer_last)
     VALUES (?,?,?,?,?,?,?)`).run(cust.lastInsertRowid, (b.vin || '').trim().toUpperCase() || null,
     b.year || null, b.make, b.model, vclass, b.odometer || null);
+
   const loc = GEO.byCode[b.zone] || GEO.byCode['minneapolis_dt'];
+  const token = crypto.randomBytes(9).toString('hex');
+  const a = sess && sess.assessment ? sess.assessment : { certain: false, findings: [], rangeable: false };
+  const findings = a.findings || [];
+  const lead = findings[0];
+
   const job = db.prepare(`INSERT INTO jobs (customer_id, vehicle_id, service_address, zone, lat, lng,
-    est_minutes, symptom_code, symptom_notes, requested_window, status)
-    VALUES (?,?,?,?,?,?,?,?,?,?,'quoted')`)
+    est_minutes, symptom_code, symptom_notes, requested_window, status,
+    triage_answers, triage_findings, predicted_code, predicted_confidence,
+    safe_location, safety_level, public_token)
+    VALUES (?,?,?,?,?,?,?,?,?,?,'quoted',?,?,?,?,?,?,?)`)
     .run(cust.lastInsertRowid, veh.lastInsertRowid, b.service_address, b.zone, loc.lat, loc.lng,
-      M.jobMinutes(b.symptom_code), b.symptom_code, b.symptom_notes || null, b.requested_window);
+      M.jobMinutes(code), code, b.symptom_notes || null, b.requested_window,
+      sess ? JSON.stringify(sess.answers) : null,
+      findings.length ? JSON.stringify(findings) : null,
+      assessment ? assessment.lead_code : null, lead ? lead.confidence : null,
+      sess ? sess.safe_location : null,
+      sess && sess.safety ? sess.safety.level : null,
+      token);
 
-  const total = rate.labor_cents + rate.parts_cents + rate.trip_cents;
-  db.prepare(`INSERT INTO quotes (job_id, labor_cents, parts_cents, trip_cents, total_cents)
-    VALUES (?,?,?,?,?)`).run(job.lastInsertRowid, rate.labor_cents, rate.parts_cents, rate.trip_cents, total);
+  // Stage 1: the diagnostic. Fixed, and the only thing authorized at booking.
+  const mid = rate.labor_cents + rate.parts_cents + rate.trip_cents;
+  const canRange = !!(sess && sess.rangeable);
+  db.prepare(`INSERT INTO quotes (job_id, stage, labor_cents, parts_cents, trip_cents, total_cents, low_cents, high_cents)
+    VALUES (?,'diagnostic',?,0,0,?,?,?)`)
+    .run(job.lastInsertRowid, DIAGNOSTIC_CENTS, DIAGNOSTIC_CENTS,
+      canRange ? Math.round(mid * 0.84 / 500) * 500 : null,
+      canRange ? Math.round(mid * 1.18 / 500) * 500 : null);
 
-  logEvent(job.lastInsertRowid, null, 'quote_presented', { total_cents: total, mobile_eligible: !!rate.mobile_eligible });
+  logEvent(job.lastInsertRowid, null, 'triage_completed', {
+    predicted: lead ? lead.code : null, confidence: lead ? lead.confidence : null,
+    questions_answered: sess ? sess.answers.length : 0, safety: sess && sess.safety ? sess.safety.level : null });
 
   const j = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(job.lastInsertRowid);
-  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=?`).get(j.id);
+  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(j.id);
   const vv = db.prepare(`SELECT * FROM vehicles WHERE id=?`).get(j.vehicle_id);
-  res.send(V.quoteView(j, vv, q, !!rate.mobile_eligible));
+  res.send(V.quoteView(j, vv, q, !!rate.mobile_eligible, findings, assessment));
 });
 
 /* ---------- matching context: what the engine needs to know right now ---------- */
@@ -121,7 +265,7 @@ function rankedFor(job) {
 
 /* ---------- send one wave of offers ---------- */
 function dispatchWave(job, waveIndex) {
-  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? ORDER BY version DESC`).get(job.id);
+  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(job.id);
   const ranked = rankedFor(job);
   const slice = M.waveSlice(ranked, waveIndex);
   if (!slice.length) return 0;
@@ -129,7 +273,8 @@ function dispatchWave(job, waveIndex) {
   const expires = new Date(Date.now() + M.WAVE_SECONDS * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
   for (const r of slice) {
-    const payout = M.payoutCents(q.total_cents, r.drive_minutes);
+    const est = q.low_cents ? Math.round((q.low_cents + q.high_cents) / 2) : q.total_cents;
+    const payout = M.payoutCents(est, r.drive_minutes);
     db.prepare(`INSERT INTO offers (job_id, contractor_id, payout_cents, wave, score, drive_minutes, breakdown, expires_at)
       VALUES (?,?,?,?,?,?,?,?)`).run(job.id, r.contractor.id, payout, waveIndex,
       r.score, r.drive_minutes, JSON.stringify(r.breakdown), expires);
@@ -171,11 +316,12 @@ setInterval(() => {
 app.post('/jobs/:id/accept', (req, res) => {
   const j = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(req.params.id);
   if (!j) return res.status(404).send('Job not found');
-  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=?`).get(j.id);
+  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(j.id);
 
   db.prepare(`UPDATE quotes SET accepted_at=datetime('now') WHERE id=?`).run(q.id);
-  logEvent(j.id, null, 'quote_accepted', { total_cents: q.total_cents });
-  payments.authorize(j.id, q.total_cents);
+  logEvent(j.id, null, 'diagnostic_accepted', { total_cents: q.total_cents });
+  // Only the diagnostic is authorized now. The repair is authorized after approval.
+  payments.authorize(j.id, q.total_cents, 'diagnostic');
 
   const sent = dispatchWave(j, 0);
 
@@ -185,10 +331,67 @@ app.post('/jobs/:id/accept', (req, res) => {
     payments.release(j.id);
     const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id);
     sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: no mobile mechanic can cover this one. We've released the hold on your card and a coordinator will call you with a verified shop nearby.`, j.id);
-    return res.send(V.bookedView(j, 0));
+    return res.redirect('/j/' + j.public_token);
   }
 
-  res.send(V.bookedView(j, sent));
+  res.redirect('/j/' + j.public_token);
+});
+
+/* ---------------- customer job page (token-scoped, no login) ---------------- */
+
+function jobBundle(token) {
+  const j = db.prepare(`SELECT * FROM jobs WHERE public_token=?`).get(token);
+  if (!j) return null;
+  return {
+    job: j,
+    cust: db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id),
+    veh: db.prepare(`SELECT * FROM vehicles WHERE id=?`).get(j.vehicle_id),
+    diag: db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(j.id),
+    repair: db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='repair' ORDER BY id DESC`).get(j.id),
+    contractor: j.contractor_id ? db.prepare(`SELECT * FROM contractors WHERE id=?`).get(j.contractor_id) : null,
+    dx: db.prepare(`SELECT * FROM diagnoses WHERE job_id=? ORDER BY id DESC`).get(j.id),
+    pays: db.prepare(`SELECT * FROM payments WHERE job_id=?`).all(j.id),
+    deferred: db.prepare(`SELECT * FROM deferred_items WHERE job_id=?`).all(j.id),
+  };
+}
+
+app.get('/j/:token', (req, res) => {
+  const b = jobBundle(req.params.token);
+  if (!b) return res.status(404).send('Not found');
+  const media = b.dx ? db.prepare(`SELECT * FROM diagnosis_media WHERE diagnosis_id=?`).all(b.dx.id) : [];
+  const history = db.prepare(`
+    SELECT j.*, d.system, d.component, d.recommendation FROM jobs j
+    LEFT JOIN diagnoses d ON d.job_id=j.id
+    WHERE j.vehicle_id=? AND j.status='completed' AND j.id<>? ORDER BY j.id DESC`).all(b.veh.id, b.job.id);
+  res.send(V.customerJob(b, media, history));
+});
+
+/* Customer approves or declines the repair estimate. This is the moment the
+   whole product exists for — evidence first, price second, decision theirs. */
+app.post('/j/:token/approve', (req, res) => {
+  const b = jobBundle(req.params.token);
+  if (!b || !b.repair || b.repair.accepted_at) return res.redirect('/j/' + req.params.token);
+  db.prepare(`UPDATE quotes SET accepted_at=datetime('now') WHERE id=?`).run(b.repair.id);
+  db.prepare(`UPDATE jobs SET status='approved' WHERE id=?`).run(b.job.id);
+  logEvent(b.job.id, b.job.contractor_id, 'repair_approved', {
+    total_cents: b.repair.total_cents, credit_cents: b.repair.credit_cents });
+  // Authorize the balance. The diagnostic already on hold covers the credit.
+  const balance = Math.max(0, b.repair.total_cents - b.repair.credit_cents);
+  if (balance > 0) payments.authorize(b.job.id, balance, 'repair');
+  sendSms(b.contractor ? b.contractor.phone : '', `Wrenchmark ${V.jobRef(b.job.id)}: customer approved the repair. Go ahead.`, b.job.id);
+  res.redirect('/j/' + req.params.token);
+});
+
+app.post('/j/:token/decline', (req, res) => {
+  const b = jobBundle(req.params.token);
+  if (!b || !b.repair || b.repair.accepted_at) return res.redirect('/j/' + req.params.token);
+  db.prepare(`UPDATE quotes SET declined_at=datetime('now') WHERE id=?`).run(b.repair.id);
+  db.prepare(`UPDATE jobs SET status='completed', outcome='diagnostic_only', completed_at=datetime('now')
+              WHERE id=?`).run(b.job.id);
+  logEvent(b.job.id, b.job.contractor_id, 'repair_declined', { total_cents: b.repair.total_cents });
+  payments.capture(b.job.id, 'diagnostic'); // they still get the report and the photos
+  sendSms(b.cust.phone, `Wrenchmark ${V.jobRef(b.job.id)}: understood — no repair. You're charged the ${V.money(b.diag.total_cents)} diagnostic only, and the full report with photos is yours to take anywhere.`, b.job.id);
+  res.redirect('/j/' + req.params.token);
 });
 
 /* ---------------- contractor flow ---------------- */
@@ -209,7 +412,8 @@ app.get('/tech/:cid', (req, res) => {
     WHERE o.contractor_id=? AND o.status='sent' AND j.status='offered' ORDER BY o.id DESC`).all(c.id);
   const active = db.prepare(`
     SELECT j.*, v.year, v.make, v.model FROM jobs j JOIN vehicles v ON v.id=j.vehicle_id
-    WHERE j.contractor_id=? AND j.status='accepted' ORDER BY j.id DESC`).all(c.id);
+    WHERE j.contractor_id=? AND j.status IN ('accepted','awaiting_approval','approved')
+    ORDER BY j.id DESC`).all(c.id);
   res.send(V.techBoard(c, offers, active));
 });
 
@@ -247,12 +451,16 @@ app.get('/tech/job/:jid', (req, res) => {
   if (!j) return res.status(404).send('Job not found');
   const veh = db.prepare(`SELECT * FROM vehicles WHERE id=?`).get(j.vehicle_id);
   const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id);
-  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? ORDER BY version DESC`).get(j.id);
+  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(j.id);
+  let findings = [], answers = [];
+  try { findings = JSON.parse(j.triage_findings || '[]'); } catch {}
+  try { answers = JSON.parse(j.triage_answers || '[]'); } catch {}
+  if (j.status === 'approved') return res.send(V.completeForm(j, veh, cust, q));
   if (!j.arrived_at) {
     db.prepare(`UPDATE jobs SET arrived_at=datetime('now') WHERE id=?`).run(j.id);
     logEvent(j.id, j.contractor_id, 'arrived', null);
   }
-  res.send(V.diagnosisForm(j, veh, cust, q));
+  res.send(V.diagnosisForm(j, veh, cust, q, findings, answers));
 });
 
 const photoFields = upload.fields([
@@ -265,46 +473,95 @@ app.post('/tech/job/:jid/diagnosis', photoFields, (req, res) => {
   const j = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(req.params.jid);
   if (!j) return res.status(404).send('Job not found');
   const b = req.body;
-  const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? ORDER BY version DESC`).get(j.id);
+  const diagQ = db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(j.id);
+  const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id);
 
   const dx = db.prepare(`INSERT INTO diagnoses (job_id, vin_confirmed, odometer, fault_codes, system,
     component, findings_notes, labor_hours_est, severity, recommendation)
     VALUES (?,?,?,?,?,?,?,?,?,?)`).run(j.id, b.vin_confirmed || null, b.odometer || null,
     b.fault_codes || null, b.system || null, b.component || null, b.findings_notes || null,
     b.labor_hours_est ? parseFloat(b.labor_hours_est) : null, b.severity || null, b.recommendation || null);
-  logEvent(j.id, j.contractor_id, 'diagnosis_recorded', { fault_codes: b.fault_codes, component: b.component });
 
   if (b.vin_confirmed) db.prepare(`UPDATE vehicles SET vin=? WHERE id=?`).run(b.vin_confirmed, j.vehicle_id);
   if (b.odometer) db.prepare(`UPDATE vehicles SET odometer_last=? WHERE id=?`).run(b.odometer, j.vehicle_id);
 
   const files = req.files || {};
   const roleMap = { photo_fault: 'fault', photo_part: 'part', photo_completed: 'completed_work' };
-  let shotCount = 0;
+  let shots = 0;
   for (const [field, role] of Object.entries(roleMap)) {
     const f = files[field]?.[0];
     if (f) {
       db.prepare(`INSERT INTO diagnosis_media (diagnosis_id, url, media_role) VALUES (?,?,?)`)
         .run(dx.lastInsertRowid, '/uploads/' + f.filename, role);
-      shotCount++;
+      shots++;
     }
   }
 
-  const completed = b.outcome === 'completed';
-  if (completed) {
-    db.prepare(`UPDATE jobs SET status='completed', outcome='completed', completed_at=datetime('now') WHERE id=?`).run(j.id);
-    logEvent(j.id, j.contractor_id, 'completed', { photos: shotCount });
-    payments.capture(j.id, q.total_cents);
-    const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id);
-    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: work complete. Charged ${V.money(q.total_cents)} — the price you were quoted. Your report and photos are on the way.`, j.id);
-  } else {
+  // Did triage get it right? This one comparison is the data asset.
+  const actual = b.actual_code || j.symptom_code;
+  const correct = j.predicted_code ? (actual === j.predicted_code ? 1 : 0) : null;
+  db.prepare(`UPDATE jobs SET actual_code=?, prediction_correct=? WHERE id=?`).run(actual, correct, j.id);
+  logEvent(j.id, j.contractor_id, 'diagnosis_recorded', {
+    predicted: j.predicted_code, actual, correct, fault_codes: b.fault_codes, photos: shots });
+
+  // Things noticed but deliberately not fixed. Logged, never upsold on the spot.
+  for (let i = 1; i <= 3; i++) {
+    const note = (b['deferred_note_' + i] || '').trim();
+    if (note) {
+      db.prepare(`INSERT INTO deferred_items (job_id, vehicle_id, system, note, urgency)
+        VALUES (?,?,?,?,?)`).run(j.id, j.vehicle_id, b['deferred_system_' + i] || null, note,
+        b['deferred_urgency_' + i] || 'monitor');
+    }
+  }
+
+  if (b.outcome === 'aborted') {
     db.prepare(`UPDATE jobs SET status='aborted', outcome='aborted', abort_reason_code=? WHERE id=?`)
       .run(b.abort_reason_code || 'unspecified', j.id);
     logEvent(j.id, j.contractor_id, 'aborted', { reason: b.abort_reason_code });
-    payments.release(j.id);
-    const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id);
-    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: we couldn't finish this one on site, so the hold on your card is released. You have not been charged.`, j.id);
+    payments.release(j.id, null, 'could not complete');
+    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: we couldn't get this one done on site, so every hold on your card is released. You have not been charged a cent. Your report: /j/${j.public_token}`, j.id);
+    return res.redirect('/tech/' + j.contractor_id);
   }
-  res.redirect('/admin/job/' + j.id);
+
+  // Diagnosis done. Build the repair quote and hand the decision to the customer.
+  const labor = Math.round(parseFloat(b.repair_labor || 0) * 100);
+  const parts = Math.round(parseFloat(b.repair_parts || 0) * 100);
+  const total = labor + parts;
+  const credit = diagQ ? diagQ.total_cents : 0;
+
+  if (total > 0) {
+    db.prepare(`INSERT INTO quotes (job_id, stage, labor_cents, parts_cents, trip_cents,
+      credit_cents, total_cents) VALUES (?,'repair',?,?,0,?,?)`)
+      .run(j.id, labor, parts, credit, total);
+    db.prepare(`UPDATE jobs SET status='awaiting_approval' WHERE id=?`).run(j.id);
+    logEvent(j.id, j.contractor_id, 'repair_quoted', { total_cents: total, credit_cents: credit });
+    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: diagnosis done, with photos. ${b.recommendation || 'See the report'} — ${V.money(Math.max(0, total - credit))} more after your ${V.money(credit)} diagnostic credit. Approve or decline: /j/${j.public_token}`, j.id);
+  } else {
+    // Nothing to repair — the honest outcome nobody else offers.
+    db.prepare(`UPDATE jobs SET status='completed', outcome='diagnostic_only', completed_at=datetime('now') WHERE id=?`).run(j.id);
+    payments.capture(j.id, 'diagnostic');
+    logEvent(j.id, j.contractor_id, 'diagnostic_only', { note: 'no repair required' });
+    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: good news — nothing needs replacing. You're charged the diagnostic only. Full report: /j/${j.public_token}`, j.id);
+  }
+  res.redirect('/tech/' + j.contractor_id);
+});
+
+/* Mechanic marks the approved repair finished. */
+app.post('/tech/job/:jid/complete', photoFields, (req, res) => {
+  const j = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(req.params.jid);
+  if (!j || j.status !== 'approved') return res.redirect('/tech/' + (j ? j.contractor_id : ''));
+  const dx = db.prepare(`SELECT * FROM diagnoses WHERE job_id=? ORDER BY id DESC`).get(j.id);
+  const f = (req.files || {}).photo_completed?.[0];
+  if (f && dx) {
+    db.prepare(`INSERT INTO diagnosis_media (diagnosis_id, url, media_role) VALUES (?,?,'completed_work')`)
+      .run(dx.id, '/uploads/' + f.filename);
+  }
+  db.prepare(`UPDATE jobs SET status='completed', outcome='completed', completed_at=datetime('now') WHERE id=?`).run(j.id);
+  const captured = payments.capture(j.id);
+  logEvent(j.id, j.contractor_id, 'completed', { captured_cents: captured });
+  const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id);
+  sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: all done. Charged ${V.money(captured)} — exactly what you approved. Report and photos: /j/${j.public_token}`, j.id);
+  res.redirect('/tech/' + j.contractor_id);
 });
 
 /* ---------------- admin ---------------- */
