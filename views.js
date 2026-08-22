@@ -74,7 +74,7 @@ function intake() {
 
   <div class="hero" id="hero">
     <h1>Something's wrong with your car. Let's work out what.</h1>
-    <p>Tell us what's happening in your own words. We'll ask a couple of questions, tell you honestly what it's likely to be, and what it should cost — before anyone comes out.</p>
+    <p>No forms and no car jargon. Tap what you have noticed, answer two or three questions, and we will tell you honestly what it is likely to be and what it should cost — before anyone comes out.</p>
     <div class="pledges">
       <span class="pledge">${ico('check', 15)} You approve the price before any work</span>
       <span class="pledge">${ico('shield', 15)} We come to the car</span>
@@ -252,43 +252,51 @@ async function onSafety(v){
   safeLocation = v;
   $('#hero').classList.add('hide');
   if (v === 'roadside'){
-    await say([
-      "Then please get well clear of traffic first — behind a barrier if there is one, and hazards on.",
-      "We can come to a roadside, but if you're on a highway shoulder a tow to somewhere safer is usually the better call. Your insurance or AAA can arrange it, and we'll meet the car wherever it lands."
-    ]);
+    alertBox('stop', "Get well clear of traffic first — behind a barrier if there is one, hazards on. If you are on a highway shoulder, a tow somewhere safer is the better call, and your insurance or AAA can arrange it. We will meet the car wherever it ends up.");
+    await wait(650);
   }
-  await say(["Now — tell me what's happening, in whatever words come naturally. You don't need to know any car terms."]);
-  askFree();
+  await begin();
 }
 
-function askFree(){
-  const box = push(el(
-    '<div class="saybox"><textarea id="freetext" rows="3" placeholder="It made a grinding noise when I braked this morning and now the pedal feels soft…"></textarea>'+
-    '<button type="button" class="btn" id="sendfree"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 14 0M13 6l6 6-6 6"/></svg></button></div>'));
-  const ta = $('#freetext', box), btn = $('#sendfree', box);
-  ta.focus();
-  const go = async () => {
-    const txt = ta.value.trim();
-    if (txt.length < 3) return;
-    box.remove(); me(txt);
-    await start(txt);
-  };
-  btn.addEventListener('click', go);
-  ta.addEventListener('keydown', e => { if(e.key==='Enter' && (e.metaKey||e.ctrlKey)) go(); });
-}
-
-async function start(text){
-  $('#f-notes').value = text;
+async function begin(){
   const r = await fetch('/api/triage/start', {
     method:'POST', headers:{'content-type':'application/json'},
-    body: JSON.stringify({ text, safe_location: safeLocation })
-  }).then(r=>r.json());
-  session = r.session; $('#f-session').value = r.session;
-  if (r.restate) await say([r.restate]);
-  else await say(["Got it. Let me narrow this down."]);
-  if (r.safety) alertBox(r.safety.level, r.safety.text);
-  if (r.question) ask(r.question, r.step, r.total);
-  else finish([{label:'General diagnosis', explain:'', confidence:60, lead:true, code:'other'}]);
+    body: JSON.stringify({ safe_location: safeLocation })
+  }).then(function(x){return x.json()});
+  session = r.session;
+  $('#f-session').value = r.session;
+  ask(r.question, r.step, r.total);
+}
+
+/* The keyboard comes out last, and only as an offer. */
+async function askNote(wants){
+  await say(wants
+    ? ["Tell me about it in your own words — whatever you noticed. A sentence is plenty."]
+    : ["Last thing, and it's optional: anything else you want the mechanic to know before they set off? Sounds, smells, when it started, anything you tried."]);
+  const box = push(el(
+    '<div class="saybox"><textarea id="notetext" rows="3" placeholder="It started making the noise on Tuesday and it is worse when the car is cold..."></textarea>'+
+    '<button type="button" class="btn" id="sendnote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 14 0M13 6l6 6-6 6"/></svg></button></div>'));
+  const skip = push(el('<div class="picks"><button type="button" class="pick" id="skipnote">Nothing to add — carry on</button></div>'));
+  const ta = $('#notetext', box), btn = $('#sendnote', box);
+  const send = async function(txt){
+    box.remove(); skip.remove();
+    if (txt) me(txt);
+    const r = await fetch('/api/triage/note', {
+      method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({ session: session, text: txt })
+    }).then(function(x){return x.json()});
+    if (txt) $('#f-notes').value = txt;
+    if (r.safety && !document.querySelector('.alert.'+r.safety.level)) alertBox(r.safety.level, r.safety.text);
+    if (r.restate) await say([r.restate]);
+    $('#f-symptom').value = r.lead_code;
+    finish(r);
+  };
+  btn.addEventListener('click', function(){ const t = ta.value.trim(); if (t.length >= 2) send(t); });
+  ta.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { const t = ta.value.trim(); if (t.length >= 2) send(t); }
+  });
+  $('#skipnote', skip).addEventListener('click', function(){ send(''); });
+  if (wants) ta.focus();
 }
 
 async function ask(q, step, total){
@@ -299,6 +307,7 @@ async function ask(q, step, total){
       body: JSON.stringify({ session, question_id: q.id, option_indexes: idxs })
     }).then(r=>r.json());
     if (r.safety && !document.querySelector('.alert.'+r.safety.level)) alertBox(r.safety.level, r.safety.text);
+    if (r.ask_note) return askNote(r.wants_note);
     if (!r.done) return ask(r.question, r.step, r.total);
     $('#f-symptom').value = r.lead_code;
     finish(r);

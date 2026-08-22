@@ -70,18 +70,21 @@ const NOT_SURE = { label: "I'm not sure", weights: {}, neutral: true };
 const BOARD = {
   id: 'board',
   multi: true,
-  prompt: "No problem — most people can't name it, and you shouldn't have to. Tap anything that sounds familiar. As many as you like.",
+  prompt: "What's it doing? Tap anything that sounds familiar — as many as you like. You don't need to know any car terms.",
   options: [
     { label: "It won't start at all", weights: { no_start: 3, battery: 3, starter: 3 } },
-    { label: 'It starts, but something sounds wrong', weights: { brakes: 2, suspension: 2 } },
+    { label: 'It starts, but runs badly', weights: { check_engine: 4, no_start: 1 } },
     { label: 'A warning light is on', weights: { check_engine: 5 } },
     { label: 'Noise when I brake', weights: { brakes: 6 } },
+    { label: 'Noise over bumps', weights: { suspension: 6 } },
     { label: 'It runs hot, or there is steam', weights: { overheating: 6 }, safety: 'stop' },
     { label: 'Something is leaking underneath', weights: { overheating: 3, oil_change: 2 } },
-    { label: 'It drives rough or bumpy', weights: { suspension: 5 } },
     { label: 'It cut out while I was driving', weights: { alternator: 5, check_engine: 2 }, safety: 'caution' },
+    { label: 'It needed a jump start', weights: { battery: 5, alternator: 3 } },
+    { label: 'Brakes feel wrong', weights: { brakes: 5 } },
+    { label: 'Steering or handling feels off', weights: { suspension: 5 }, safety: 'caution' },
     { label: "It's just due for a service", weights: { oil_change: 6 } },
-    { label: "None of these — I really can't tell", weights: {}, neutral: true },
+    { label: "Something else — I'll describe it", weights: {}, neutral: true, wantsNote: true },
   ],
 };
 
@@ -393,7 +396,23 @@ async function detectWithClaude(text) {
   }
 }
 
+/* Free text arrives at the end now, as a supplement rather than the opening
+   demand. A frightened person can tap; typing a description of a fault you
+   cannot name is the hardest thing we could have asked for first. */
+function applyNote(scores, text) {
+  if (!text || !text.trim()) return { scores, safety: null, informative: 0 };
+  const found = detect(text);
+  const next = { ...scores };
+  let informative = 0;
+  for (const [code, v] of Object.entries(found)) {
+    next[code] = (next[code] || 0) + v;
+    informative += 1;
+  }
+  return { scores: next, safety: safetyFrom(text), informative };
+}
+
 module.exports = {
+  applyNote,
   detect, detectWithClaude, safetyFrom, planFor, applyAnswer, assess,
   looksUnsure, topCode,
   QUESTIONS, BOARD, LABELS, EXPLAIN, RANGEABLE, NO_RANGE_REASON, SIGNAL_FLOOR,

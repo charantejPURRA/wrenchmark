@@ -78,39 +78,14 @@ setInterval(() => {
 
 const DIAGNOSTIC_CENTS = 8900;
 
-app.post('/api/triage/start', express.json(), async (req, res) => {
-  const { text, safe_location } = req.body || {};
+app.post('/api/triage/start', express.json(), (req, res) => {
+  const { safe_location } = req.body || {};
   const id = crypto.randomUUID();
-
-  const claude = await T.detectWithClaude(text);
-  let scores = claude ? claude.scores : T.detect(text);
-  const thin = Object.keys(scores).length === 0 ||
-    (claude ? claude.unsure : T.looksUnsure(text));
-  const safety = T.safetyFrom(text);
-
-  const sess = { t: Date.now(), scores, text, safe_location, answers: [],
-    informative: 0, safety, plan: [], step: 0, boardShown: false };
-  sessions.set(id, sess);
-
-  // Nothing to go on? Show the board instead of guessing. This is the path
-  // for "I don't know", which is an honest answer, not a failure.
-  if (thin) {
-    sess.boardShown = true;
-    return res.json({
-      session: id, safety: safety ? { level: safety.level, text: safety.text } : null,
-      restate: claude && claude.restate && !claude.unsure ? claude.restate : null,
-      question: { ...T.BOARD, id: 'board' }, step: 1, total: 4, board: true,
-    });
-  }
-
-  sess.plan = T.planFor(scores);
-  res.json({
-    session: id,
-    restate: claude ? claude.restate : null,
-    safety: safety ? { level: safety.level, text: safety.text } : null,
-    question: sess.plan.length ? { id: sess.plan[0], ...T.QUESTIONS[sess.plan[0]] } : null,
-    step: 1, total: sess.plan.length,
-  });
+  sessions.set(id, { t: Date.now(), scores: {}, safe_location, answers: [],
+    informative: 0, safety: null, plan: [], step: 0, note: '' });
+  // Options first, always. Typing a description of a fault you cannot name is
+  // the hardest thing we could ask of someone standing next to a broken car.
+  res.json({ session: id, question: { ...T.BOARD }, step: 1, total: 4, board: true });
 });
 
 app.post('/api/triage/answer', express.json(), (req, res) => {
@@ -128,11 +103,12 @@ app.post('/api/triage/answer', express.json(), (req, res) => {
   if (r.safety && (!s.safety || r.safety === 'stop')) {
     s.safety = { level: r.safety, text: r.safety === 'stop'
       ? "That's the kind of thing we'd rather you didn't drive on. Leave it where it is — we come to the car."
-      : 'Worth being careful with. Short trips only until someone looks at it.' };
+      : 'Worth being careful with. Short trips only until someone has looked at it.' };
   }
 
-  // After the board, build a question plan from whatever it revealed.
   if (question_id === 'board') {
+    const idxs = Array.isArray(option_indexes) ? option_indexes : [option_indexes];
+    s.wantsNote = idxs.some((i) => (T.BOARD.options[i] || {}).wantsNote);
     s.plan = (r.informative > 0) ? T.planFor(s.scores) : ['driving_change', 'how_long'];
     s.step = 0;
     const first = s.plan[0];
@@ -145,14 +121,43 @@ app.post('/api/triage/answer', express.json(), (req, res) => {
   if (nextId) {
     return res.json({ safety: s.safety, done: false,
       question: { id: nextId, ...T.QUESTIONS[nextId] },
-      step: s.step + 1 + (s.boardShown ? 1 : 0),
-      total: s.plan.length + (s.boardShown ? 1 : 0) });
+      step: s.step + 2, total: s.plan.length + 1 });
   }
+
+  // Questions done. Now — and only now — offer the keyboard.
+  res.json({ safety: s.safety, done: false, ask_note: true, wants_note: !!s.wantsNote });
+});
+
+/* Optional free text, after the guided questions. Skippable. */
+app.post('/api/triage/note', express.json(), async (req, res) => {
+  const { session, text } = req.body || {};
+  const s = sessions.get(session);
+  if (!s) return res.status(404).json({ error: 'session expired' });
+
+  let restate = null;
+  if (text && text.trim()) {
+    s.note = text.trim();
+    const claude = await T.detectWithClaude(text);
+    if (claude && Object.keys(claude.scores || {}).length) {
+      for (const [c, v] of Object.entries(claude.scores)) s.scores[c] = (s.scores[c] || 0) + v;
+      s.informative += 1;
+      restate = claude.restate || null;
+    } else {
+      const r = T.applyNote(s.scores, text);
+      s.scores = r.scores;
+      s.informative += r.informative;
+      if (r.safety && (!s.safety || r.safety.level === 'stop')) {
+        s.safety = { level: r.safety.level, text: r.safety.text };
+      }
+    }
+    s.answers.push({ question_id: 'note', label: s.note });
+  }
+  s.t = Date.now();
 
   const out = T.assess(s.scores, s.informative);
   s.assessment = out;
   s.lead_code = out.lead_code;
-  res.json({ safety: s.safety, done: true, ...out });
+  res.json({ safety: s.safety, restate, done: true, ...out });
 });
 
 app.post('/api/triage/price', express.json(), (req, res) => {
@@ -206,7 +211,7 @@ app.post('/book', (req, res) => {
     safe_location, safety_level, public_token)
     VALUES (?,?,?,?,?,?,?,?,?,?,'quoted',?,?,?,?,?,?,?)`)
     .run(cust.lastInsertRowid, veh.lastInsertRowid, b.service_address, b.zone, loc.lat, loc.lng,
-      M.jobMinutes(code), code, b.symptom_notes || null, b.requested_window,
+      M.jobMinutes(code), code, (sess && sess.note) || b.symptom_notes || null, b.requested_window,
       sess ? JSON.stringify(sess.answers) : null,
       findings.length ? JSON.stringify(findings) : null,
       assessment ? assessment.lead_code : null, lead ? lead.confidence : null,
