@@ -182,7 +182,7 @@ app.post('/api/triage/price', express.json(), (req, res) => {
   res.json(payload);
 });
 
-app.get('/', (req, res) => res.send(V.intake()));app.get('/', (req, res) => res.send(V.intake()));
+app.get('/', (req, res) => res.send(V.intake()));
 
 app.post('/book', (req, res) => {
   const b = req.body;
@@ -203,7 +203,7 @@ app.post('/book', (req, res) => {
   const token = crypto.randomBytes(9).toString('hex');
   const a = sess && sess.assessment ? sess.assessment : { certain: false, findings: [], rangeable: false };
   const findings = a.findings || [];
-  const lead = findings[0];
+  const lead = findings.find((f) => f.lead) || findings[0] || null;
 
   const job = db.prepare(`INSERT INTO jobs (customer_id, vehicle_id, service_address, zone, lat, lng,
     est_minutes, symptom_code, symptom_notes, requested_window, status,
@@ -214,14 +214,14 @@ app.post('/book', (req, res) => {
       M.jobMinutes(code), code, (sess && sess.note) || b.symptom_notes || null, b.requested_window,
       sess ? JSON.stringify(sess.answers) : null,
       findings.length ? JSON.stringify(findings) : null,
-      assessment ? assessment.lead_code : null, lead ? lead.confidence : null,
+      a.lead_code || null, lead ? lead.confidence : null,
       sess ? sess.safe_location : null,
       sess && sess.safety ? sess.safety.level : null,
       token);
 
   // Stage 1: the diagnostic. Fixed, and the only thing authorized at booking.
   const mid = rate.labor_cents + rate.parts_cents + rate.trip_cents;
-  const canRange = !!(sess && sess.rangeable);
+  const canRange = !!a.rangeable;
   db.prepare(`INSERT INTO quotes (job_id, stage, labor_cents, parts_cents, trip_cents, total_cents, low_cents, high_cents)
     VALUES (?,'diagnostic',?,0,0,?,?,?)`)
     .run(job.lastInsertRowid, DIAGNOSTIC_CENTS, DIAGNOSTIC_CENTS,
@@ -235,7 +235,7 @@ app.post('/book', (req, res) => {
   const j = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(job.lastInsertRowid);
   const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(j.id);
   const vv = db.prepare(`SELECT * FROM vehicles WHERE id=?`).get(j.vehicle_id);
-  res.send(V.quoteView(j, vv, q, !!rate.mobile_eligible, findings, assessment));
+  res.send(V.quoteView(j, vv, q, !!rate.mobile_eligible, findings, a));
 });
 
 /* ---------- matching context: what the engine needs to know right now ---------- */
