@@ -1,7 +1,10 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const db = new Database(path.join(__dirname, 'wrenchmark.db'));
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const fs = require('fs');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const db = new Database(path.join(DATA_DIR, 'wrenchmark.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
@@ -30,6 +33,7 @@ CREATE TABLE IF NOT EXISTS contractors (
   max_drive_minutes INTEGER DEFAULT 40,
   max_minutes_per_day INTEGER DEFAULT 480,
   training_completed_at TEXT,
+  access_token TEXT,
   status TEXT DEFAULT 'active',
   created_at TEXT DEFAULT (datetime('now'))
 );

@@ -1,4 +1,5 @@
 const { db } = require('./db');
+const crypto = require('crypto');
 
 const SYMPTOMS = [
   { code: 'no_start', label: "Won't start", blurb: 'Dead, clicking, or cranks and quits', system: 'Starting & charging', icon: 'key' },
@@ -133,6 +134,13 @@ const insC = db.prepare(`INSERT INTO contractors
 
 if (db.prepare(`SELECT COUNT(*) c FROM contractors`).get().c === 0) {
   for (const c of contractors) insC.run(c);
+}
+
+/* Every mechanic gets a personal access token. Their SMS link carries it,
+   and it is what stops one mechanic from reading another's board. */
+for (const c of db.prepare(`SELECT id FROM contractors WHERE access_token IS NULL`).all()) {
+  db.prepare(`UPDATE contractors SET access_token=? WHERE id=?`)
+    .run(crypto.randomBytes(12).toString('hex'), c.id);
 }
 
 module.exports = { SYMPTOMS, CLASSES };

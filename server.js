@@ -7,13 +7,18 @@ const { classFor } = require('./vehicles');
 const GEO = require('./geo');
 const M = require('./match');
 const T = require('./triage');
+const AUTH = require('./auth');
 const crypto = require('crypto');
 require('./seed');
 const V = require('./views');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
-const UPLOADS = path.join(__dirname, 'uploads');
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const UPLOADS = process.env.DATA_DIR
+  ? path.join(process.env.DATA_DIR, 'uploads')
+  : path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS)) fs.mkdirSync(UPLOADS, { recursive: true });
 
 app.use(express.urlencoded({ extended: true }));
@@ -286,7 +291,7 @@ function dispatchWave(job, waveIndex) {
     logEvent(job.id, r.contractor.id, 'offer_sent', {
       wave: waveIndex, score: r.score, drive_minutes: r.drive_minutes, payout_cents: payout });
     sendSms(r.contractor.phone,
-      `Wrenchmark ${V.jobRef(job.id)}: ${V.symLabel(job.symptom_code)}, ${r.drive_minutes} min away. Payout ${V.money(payout)}. Accept or decline: /tech/${r.contractor.id}`,
+      `Wrenchmark ${V.jobRef(job.id)}: ${V.symLabel(job.symptom_code)}, ${r.drive_minutes} min away. Payout ${V.money(payout)}. Accept or decline: ${BASE_URL}/tech/${r.contractor.id}?k=${r.contractor.access_token}`,
       job.id);
   }
   db.prepare(`UPDATE jobs SET status='offered' WHERE id=?`).run(job.id);
@@ -341,6 +346,36 @@ app.post('/jobs/:id/accept', (req, res) => {
 
   res.redirect('/j/' + j.public_token);
 });
+
+/* ---------------- access control ----------------
+   Customer pages stay open — they are already scoped by an unguessable job
+   token. Operations needs a password. A mechanic's board is reachable only
+   through their own personal link. */
+
+app.get('/login', (req, res) => {
+  if (AUTH.isAdmin(req)) return res.redirect(req.query.next || '/admin');
+  res.send(AUTH.loginPage(req.query.next, req.query.e));
+});
+
+app.post('/login', (req, res) => {
+  if (!AUTH.hasPassword()) {
+    return res.status(500).send('ADMIN_PASSWORD is not set on this server. Operations is unreachable until it is.');
+  }
+  if (AUTH.passwordOk(req.body.password)) {
+    AUTH.setCookie(res, 'wm_admin', AUTH.issue('admin'));
+    return res.redirect(req.body.next || '/admin');
+  }
+  res.redirect('/login?e=1&next=' + encodeURIComponent(req.body.next || '/admin'));
+});
+
+app.get('/logout', (req, res) => {
+  AUTH.clearCookie(res, 'wm_admin');
+  res.redirect('/');
+});
+
+const requireTech = AUTH.makeTechGuard(db);
+app.use('/admin', AUTH.requireAdmin);
+app.use('/tech', requireTech);
 
 /* ---------------- customer job page (token-scoped, no login) ---------------- */
 
@@ -408,6 +443,9 @@ app.get('/tech', (req, res) => {
 });
 
 app.get('/tech/:cid', (req, res) => {
+  if (req.contractorId && Number(req.params.cid) !== req.contractorId) {
+    return res.redirect('/tech/' + req.contractorId);
+  }
   const c = db.prepare(`SELECT * FROM contractors WHERE id=?`).get(req.params.cid);
   if (!c) return res.status(404).send('Mechanic not found');
   const offers = db.prepare(`
@@ -422,9 +460,10 @@ app.get('/tech/:cid', (req, res) => {
   res.send(V.techBoard(c, offers, active));
 });
 
-app.post('/offers/:id/accept', (req, res) => {
+app.post('/offers/:id/accept', requireTech, (req, res) => {
   const o = db.prepare(`SELECT * FROM offers WHERE id=?`).get(req.params.id);
   if (!o) return res.status(404).send('Offer not found');
+  if (req.contractorId && o.contractor_id !== req.contractorId) return res.status(403).send(AUTH.deniedPage());
   const j = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(o.job_id);
 
   if (j.status !== 'offered') {
@@ -443,9 +482,10 @@ app.post('/offers/:id/accept', (req, res) => {
   res.redirect('/tech/' + o.contractor_id);
 });
 
-app.post('/offers/:id/decline', (req, res) => {
+app.post('/offers/:id/decline', requireTech, (req, res) => {
   const o = db.prepare(`SELECT * FROM offers WHERE id=?`).get(req.params.id);
   if (!o) return res.status(404).send('Offer not found');
+  if (req.contractorId && o.contractor_id !== req.contractorId) return res.status(403).send(AUTH.deniedPage());
   db.prepare(`UPDATE offers SET status='declined', responded_at=datetime('now') WHERE id=?`).run(o.id);
   logEvent(o.job_id, o.contractor_id, 'offer_declined', null);
   res.redirect('/tech/' + o.contractor_id);
@@ -454,6 +494,7 @@ app.post('/offers/:id/decline', (req, res) => {
 app.get('/tech/job/:jid', (req, res) => {
   const j = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(req.params.jid);
   if (!j) return res.status(404).send('Job not found');
+  if (req.contractorId && j.contractor_id !== req.contractorId) return res.status(403).send(AUTH.deniedPage());
   const veh = db.prepare(`SELECT * FROM vehicles WHERE id=?`).get(j.vehicle_id);
   const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id);
   const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(j.id);
@@ -524,7 +565,7 @@ app.post('/tech/job/:jid/diagnosis', photoFields, (req, res) => {
       .run(b.abort_reason_code || 'unspecified', j.id);
     logEvent(j.id, j.contractor_id, 'aborted', { reason: b.abort_reason_code });
     payments.release(j.id, null, 'could not complete');
-    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: we couldn't get this one done on site, so every hold on your card is released. You have not been charged a cent. Your report: /j/${j.public_token}`, j.id);
+    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: we couldn't get this one done on site, so every hold on your card is released. You have not been charged a cent. Your report: ${BASE_URL}/j/${j.public_token}`, j.id);
     return res.redirect('/tech/' + j.contractor_id);
   }
 
@@ -540,13 +581,13 @@ app.post('/tech/job/:jid/diagnosis', photoFields, (req, res) => {
       .run(j.id, labor, parts, credit, total);
     db.prepare(`UPDATE jobs SET status='awaiting_approval' WHERE id=?`).run(j.id);
     logEvent(j.id, j.contractor_id, 'repair_quoted', { total_cents: total, credit_cents: credit });
-    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: diagnosis done, with photos. ${b.recommendation || 'See the report'} — ${V.money(Math.max(0, total - credit))} more after your ${V.money(credit)} diagnostic credit. Approve or decline: /j/${j.public_token}`, j.id);
+    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: diagnosis done, with photos. ${b.recommendation || 'See the report'} — ${V.money(Math.max(0, total - credit))} more after your ${V.money(credit)} diagnostic credit. Approve or decline: ${BASE_URL}/j/${j.public_token}`, j.id);
   } else {
     // Nothing to repair — the honest outcome nobody else offers.
     db.prepare(`UPDATE jobs SET status='completed', outcome='diagnostic_only', completed_at=datetime('now') WHERE id=?`).run(j.id);
     payments.capture(j.id, 'diagnostic');
     logEvent(j.id, j.contractor_id, 'diagnostic_only', { note: 'no repair required' });
-    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: good news — nothing needs replacing. You're charged the diagnostic only. Full report: /j/${j.public_token}`, j.id);
+    sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: good news — nothing needs replacing. You're charged the diagnostic only. Full report: ${BASE_URL}/j/${j.public_token}`, j.id);
   }
   res.redirect('/tech/' + j.contractor_id);
 });
@@ -565,7 +606,7 @@ app.post('/tech/job/:jid/complete', photoFields, (req, res) => {
   const captured = payments.capture(j.id);
   logEvent(j.id, j.contractor_id, 'completed', { captured_cents: captured });
   const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(j.customer_id);
-  sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: all done. Charged ${V.money(captured)} — exactly what you approved. Report and photos: /j/${j.public_token}`, j.id);
+  sendSms(cust.phone, `Wrenchmark ${V.jobRef(j.id)}: all done. Charged ${V.money(captured)} — exactly what you approved. Report and photos: ${BASE_URL}/j/${j.public_token}`, j.id);
   res.redirect('/tech/' + j.contractor_id);
 });
 
@@ -619,6 +660,11 @@ app.get('/admin/dispatch', (req, res) => {
   res.send(V.dispatchView(live, contractors, focus, focusVeh, ranked, offers));
 });
 
+app.get('/admin/team', (req, res) => {
+  const rows = db.prepare(`SELECT * FROM contractors ORDER BY id`).all();
+  res.send(V.teamView(rows, BASE_URL));
+});
+
 app.get('/admin/export.csv', (req, res) => {
   const rows = db.prepare(`
     SELECT j.id job_id, j.created_at, j.status, j.outcome, j.abort_reason_code, j.zone,
@@ -659,4 +705,13 @@ app.get('/admin/job/:id', (req, res) => {
   res.send(V.jobReport(j, veh, cust, q, dx, media, pay, events, contractor));
 });
 
-app.listen(PORT, () => console.log(`Wrenchmark prototype running on http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Wrenchmark running on ${BASE_URL}`);
+  if (!AUTH.hasPassword()) {
+    console.log('\n  ⚠  ADMIN_PASSWORD is not set — Operations cannot be opened.');
+    console.log('     Local:  ADMIN_PASSWORD=letmein node server.js\n');
+  }
+  if (!process.env.SESSION_SECRET) {
+    console.log('  Note: SESSION_SECRET unset — sign-ins drop on every restart.\n');
+  }
+});

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: wrenchmark
+    runtime: node
+    plan: starter          # free tier sleeps after inactivity and has no disk
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true      # Render generates and stores this
+      - key: ADMIN_PASSWORD
+        sync: false              # set this yourself in the dashboard
+      - key: BASE_URL
+        sync: false              # https://wrenchmark.onrender.com, or your domain
+      - key: ANTHROPIC_API_KEY
+        sync: false              # optional — upgrades symptom extraction
+    disk:
+      name: data
+      mountPath: /var/data       # SQLite and uploaded photos live here
+      sizeGB: 1

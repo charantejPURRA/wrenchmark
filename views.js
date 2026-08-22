@@ -45,7 +45,8 @@ function page(title, nav, body, extraJs = '') {
     <a href="/" class="${nav === 'book' ? 'on' : ''}">Book</a>
     ${nav === 'book' ? '' : `<a href="/tech">Mechanic</a>
     <a href="/admin/dispatch">Dispatch</a>
-    <a href="/admin">Operations</a>`}
+    <a href="/admin">Operations</a>
+    <a href="/admin/team">Mechanics</a>`}
   </div>
 </div></div>
 ${body}
@@ -1327,3 +1328,38 @@ i.addEventListener('change',()=>{ if(i.files&&i.files[0]){ d.classList.add('has'
   return page('Complete job', 'tech', body, js);
 }
 module.exports.completeForm = completeForm;
+
+/* Mechanic access links — the page John uses to onboard people. */
+function teamView(rows, baseUrl) {
+  const body = `<div class="shell"><div class="narrow">
+    <div class="page-head"><h1>Mechanics</h1>
+      <p>Each mechanic gets one personal link. It is the only way they reach their board, and it shows them their own jobs and nobody else's.</p></div>
+    ${rows.map((c) => {
+    const gates = [];
+    if (!c.coi_on_file) gates.push('insurance');
+    if (!c.agreement_signed_at) gates.push('agreement');
+    if (!c.training_completed_at) gates.push('training');
+    const link = `${baseUrl}/tech/${c.id}?k=${c.access_token}`;
+    return `<div class="panel" style="margin-top:14px">
+      <div class="panel-h"><h2>${esc(c.legal_name)}</h2>
+        <span class="meta">${gates.length
+      ? `<span class="badge stop">${gates.length} gate${gates.length > 1 ? 's' : ''} open</span>`
+      : '<span class="badge go">Cleared for dispatch</span>'}</span></div>
+      <div class="panel-b">
+        <dl class="dl">
+          <dt>Entity</dt><dd>${esc(c.entity_name || '—')}</dd>
+          <dt>Based</dt><dd>${esc(c.base_label || '—')}</dd>
+          <dt>Licence</dt><dd class="mono">${esc(c.license_number || '—')} · to ${esc(c.license_expiry || '—')}</dd>
+          <dt>Insurance</dt><dd>${esc(c.insurance_carrier || '—')} · to ${esc(c.insurance_expiry || '—')}</dd>
+          <dt>Training</dt><dd>${c.training_completed_at ? esc(c.training_completed_at)
+        : '<span style="color:var(--red)">Not completed — cannot be dispatched</span>'}</dd>
+        </dl>
+        <div class="f" style="margin-top:16px;margin-bottom:0"><label>Their personal link</label>
+          <input type="text" readonly value="${esc(link)}" onclick="this.select()" style="font-family:var(--mono);font-size:12.5px"></div>
+        <div class="help">Text this to them directly. Anyone holding it can see this mechanic's jobs, so never post it anywhere.</div>
+      </div></div>`;
+  }).join('')}
+  </div></div>`;
+  return page('Mechanics', 'admin', body);
+}
+module.exports.teamView = teamView;
