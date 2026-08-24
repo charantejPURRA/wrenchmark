@@ -767,7 +767,7 @@ const server = app.listen(PORT, () => {
   console.log(`Wrenchmark running on ${BASE_URL}`);
   if (!AUTH.hasPassword()) {
     console.log('\n  ⚠  ADMIN_PASSWORD is not set — Operations cannot be opened.');
-    console.log('     Local:  ADMIN_PASSWORD=letmein node server.js\n');
+    console.log('     Local:  ADMIN_PASSWORD='<your-password>' node server.js\n');
   }
   if (!process.env.SESSION_SECRET) {
     console.log('  Note: SESSION_SECRET unset — sign-ins drop on every restart.\n');
