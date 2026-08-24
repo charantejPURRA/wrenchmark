@@ -2,3 +2,7 @@ node_modules/
 wrenchmark.db*
 uploads/*
 !uploads/.gitkeep
+.env
+tunnel.log
+.tunnel-url
+*.log
