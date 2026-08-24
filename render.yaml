@@ -1,23 +1,36 @@
+# Render blueprint — FREE plan.
+#
+# Start here. It costs nothing and the link works whether or not your Mac is on.
+#
+# Two things the free plan cannot do:
+#   1. It sleeps after 15 minutes with no traffic. The next visitor waits about
+#      50 seconds for it to wake. Every visit after that is instant.
+#   2. It cannot mount a disk, so there is no DATA_DIR here. The database and
+#      any uploaded photos reset whenever the service restarts or you deploy.
+#      Seed data (the five mechanics, the rate card) rebuilds automatically, so
+#      the demo is always clean — but real jobs would not survive.
+#
+# Switch to render-paid.yaml the day a real customer books. That adds a disk and
+# removes the sleep, for about $7.25/month.
+
 services:
   - type: web
     name: wrenchmark
     runtime: node
-    plan: starter          # free tier sleeps after inactivity and has no disk
+    plan: free
+    region: ohio
     buildCommand: npm ci --omit=dev
     startCommand: node server.js
-    healthCheckPath: /
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
       - key: SESSION_SECRET
-        generateValue: true      # Render generates and stores this
+        generateValue: true
       - key: ADMIN_PASSWORD
-        sync: false              # set this yourself in the dashboard
+        sync: false            # set in the dashboard — never commit it
       - key: BASE_URL
-        sync: false              # https://wrenchmark.onrender.com, or your domain
+        sync: false            # https://wrenchmark-xxxx.onrender.com
       - key: ANTHROPIC_API_KEY
-        sync: false              # optional — upgrades symptom extraction
-    disk:
-      name: data
-      mountPath: /var/data       # SQLite and uploaded photos live here
-      sizeGB: 1
+        sync: false            # optional

@@ -127,13 +127,28 @@ function waveSlice(ranked, waveIndex) {
 
 /* Payout: base share of the ticket plus a distance allowance, because a
    40-minute drive to a $90 oil change is a job nobody rational accepts. */
-function payoutCents(totalCents, driveMin, pct = 0.65, date = new Date()) {
-  const base = totalCents * pct;
-  const distance = driveMin * 55 * seasonalFactor(date); // ~$0.55/min, winter uplift
-  return Math.round(base + distance);
+/* Payout has two parts, because at dispatch time we genuinely do not know what
+   the repair is worth yet.
+
+   The mechanic is guaranteed the diagnostic share plus a drive allowance the
+   moment they arrive — that is what makes accepting a job rational even if it
+   turns out to be nothing. The repair share is added once the customer
+   approves a figure.
+
+   Offering a single blended number here was wrong in both directions: it
+   underpaid real repairs and overpaid pure diagnostics. */
+function payoutCents(diagnosticCents, driveMin, estRepairCents, pct = 0.65, date = new Date()) {
+  const guaranteed = Math.round(diagnosticCents * pct + driveMin * 55 * seasonalFactor(date));
+  const onApproval = estRepairCents ? Math.round(estRepairCents * pct) : null;
+  return { guaranteed, onApproval, total: guaranteed + (onApproval || 0) };
+}
+
+/* What the mechanic actually earns once a repair is approved. */
+function repairPayoutCents(repairTotalCents, pct = 0.65) {
+  return Math.round(repairTotalCents * pct);
 }
 
 module.exports = {
-  rank, waveSlice, gate, score, jobMinutes, payoutCents,
+  rank, waveSlice, gate, score, jobMinutes, payoutCents, repairPayoutCents,
   WAVE_SIZE, WAVE_SECONDS, MAX_WAVES, JOB_MINUTES,
 };

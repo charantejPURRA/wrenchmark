@@ -35,11 +35,11 @@ const SIGNALS = {
 const UNSURE_TEXT = ['dont know', "don't know", 'no idea', 'not sure', 'unsure', 'cant tell', "can't tell", 'no clue', 'idk', 'nothing specific', 'hard to say'];
 
 const SAFETY_FLAGS = [
-  { match: ['no brakes', 'brakes failed', 'pedal to the floor', 'pedal goes to floor', 'soft pedal', 'spongy', 'pedal feels soft', 'pedal is soft', 'pedal sinking', 'brake feels soft'],
+  { match: ['no brakes', 'brakes failed', 'pedal floor', 'pedal sink', 'soft pedal', 'spongy', 'pedal soft', 'brake soft', 'pedal all the way'],
     level: 'stop', text: "A brake pedal that sinks or feels spongy can mean the system is losing pressure. Please don't drive it — we come to the car." },
   { match: ['steam', 'smoke', 'burning smell', 'burning', 'overheat', 'overheating'],
     level: 'stop', text: 'Steam, smoke, or a burning smell means stop and let it cool. Driving on can turn a repair into a new engine.' },
-  { match: ['steering', "won't steer", 'wont steer', 'wheel shaking', 'hard to steer'],
+  { match: ['steering', 'wont steer', 'wheel shaking', 'hard steer', 'pulling hard', 'wheel wobble'],
     level: 'stop', text: "Anything affecting steering isn't safe to drive on. Leave it where it is and we'll come to you." },
   { match: ['dies while driving', 'shut off while driving', 'stalled', 'stalling', 'cut out'],
     level: 'caution', text: 'A car that shuts off while moving can lose power steering and brake assist. Avoid highways until this is sorted.' },
@@ -123,6 +123,26 @@ const QUESTIONS = {
     options: [
       { label: 'Much worse when cold', weights: { battery: 4 } },
       { label: 'Same regardless', weights: {} },
+    ],
+  },
+  bump_noise: {
+    multi: true,
+    prompt: 'When does the noise happen? Tap anything that fits.',
+    options: [
+      { label: 'Going over bumps or potholes', weights: { suspension: 6 } },
+      { label: 'Turning the wheel', weights: { suspension: 5 } },
+      { label: 'Only when braking', weights: { brakes: 6, suspension: -3 } },
+      { label: 'All the time while moving', weights: { suspension: 4 } },
+    ],
+  },
+  ride_feel: {
+    multi: true,
+    prompt: 'How does it feel to drive?',
+    options: [
+      { label: 'Bouncy, or it keeps moving after a bump', weights: { suspension: 6 } },
+      { label: 'Pulls to one side', weights: { suspension: 5 } },
+      { label: 'Feels loose or wandering', weights: { suspension: 5 } },
+      { label: 'Feels normal, just noisy', weights: { suspension: 3 } },
     ],
   },
   noise_type: {
@@ -215,7 +235,7 @@ const QUESTION_PLAN = {
   battery: ['crank_behavior', 'dash_lights', 'cold_weather'],
   alternator: ['recent_jump', 'dash_lights', 'driving_change'],
   brakes: ['noise_type', 'brake_pedal', 'brake_when'],
-  suspension: ['noise_type', 'brake_when', 'how_long'],
+  suspension: ['bump_noise', 'ride_feel', 'how_long'],
   check_engine: ['light_behavior', 'driving_change', 'how_long'],
   overheating: ['temp_gauge', 'coolant_visible', 'how_long'],
   oil_change: ['how_long'],
@@ -272,9 +292,23 @@ function detect(text) {
   return scores;
 }
 
+/* Ordered-keyword matching. Exact phrases are far too brittle for something
+   this important: a customer writing "the brake pedal goes to the floor" was
+   sailing past a list containing "pedal goes to floor". */
+function phraseHit(text, phrase) {
+  const words = phrase.split(' ').filter(Boolean);
+  let from = 0;
+  for (const w of words) {
+    const at = text.indexOf(w, from);
+    if (at === -1) return false;
+    from = at + w.length;
+  }
+  return true;
+}
+
 function safetyFrom(text) {
-  const t = String(text || '').toLowerCase();
-  const hits = SAFETY_FLAGS.filter((f) => f.match.some((m) => t.includes(m)));
+  const t = normalise(text);
+  const hits = SAFETY_FLAGS.filter((f) => f.match.some((m) => phraseHit(t, m)));
   if (!hits.length) return null;
   return hits.find((h) => h.level === 'stop') || hits[0];
 }
@@ -343,11 +377,20 @@ function assess(scores, informativeAnswers = 0) {
   }
 
   const total = ranked.reduce((s, [, v]) => s + v, 0) || 1;
-  const findings = ranked.map(([code, v], i) => ({
+  // Largest-remainder so the column always adds to exactly 100. Percentages
+  // that sum to 101 get noticed, and once they're noticed nothing else on the
+  // page is believed either.
+  const exact = ranked.map(([, v]) => (v / total) * 100);
+  const floors = exact.map(Math.floor);
+  let short = 100 - floors.reduce((a, b) => a + b, 0);
+  const order = exact.map((e, i) => [i, e - floors[i]]).sort((a, b) => b[1] - a[1]);
+  for (let k = 0; k < order.length && short > 0; k++, short--) floors[order[k][0]] += 1;
+
+  const findings = ranked.map(([code], i) => ({
     code,
     label: LABELS[code] || code,
     explain: EXPLAIN[code] || '',
-    confidence: Math.round((v / total) * 100),
+    confidence: floors[i],
     band: BANDS[i] || 'Worth ruling out',
     lead: i === 0,
   }));

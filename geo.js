@@ -59,4 +59,17 @@ function project(pt, w, h, pad = 26) {
   return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
 }
 
-module.exports = { LOCALITIES, byCode, haversineKm, driveMinutes, seasonalFactor, project, BOUNDS };
+/* Which localities we can actually serve. A booking form that offers an area
+   nobody covers takes the customer's details, holds their card, and only then
+   tells them no — worse than never offering it. */
+function servedLocalities(db) {
+  const rows = db.prepare(`SELECT service_zones FROM contractors
+    WHERE status='active' AND coi_on_file=1 AND training_completed_at IS NOT NULL`).all();
+  const covered = new Set();
+  for (const r of rows) {
+    try { for (const z of JSON.parse(r.service_zones || '[]')) covered.add(z); } catch (e) {}
+  }
+  return LOCALITIES.map((l) => Object.assign({}, l, { served: covered.has(l.code) }));
+}
+
+module.exports = { LOCALITIES, servedLocalities, byCode, haversineKm, driveMinutes, seasonalFactor, project, BOUNDS };

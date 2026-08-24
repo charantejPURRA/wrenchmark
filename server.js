@@ -283,19 +283,34 @@ function dispatchWave(job, waveIndex) {
   const expires = new Date(Date.now() + M.WAVE_SECONDS * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
   for (const r of slice) {
-    const est = q.low_cents ? Math.round((q.low_cents + q.high_cents) / 2) : q.total_cents;
-    const payout = M.payoutCents(est, r.drive_minutes);
+    const est = q.low_cents ? Math.round((q.low_cents + q.high_cents) / 2) : null;
+    const pay = M.payoutCents(q.total_cents, r.drive_minutes, est);
+    const payout = pay.total;
     db.prepare(`INSERT INTO offers (job_id, contractor_id, payout_cents, wave, score, drive_minutes, breakdown, expires_at)
       VALUES (?,?,?,?,?,?,?,?)`).run(job.id, r.contractor.id, payout, waveIndex,
       r.score, r.drive_minutes, JSON.stringify(r.breakdown), expires);
     logEvent(job.id, r.contractor.id, 'offer_sent', {
-      wave: waveIndex, score: r.score, drive_minutes: r.drive_minutes, payout_cents: payout });
+      wave: waveIndex, score: r.score, drive_minutes: r.drive_minutes,
+      guaranteed_cents: pay.guaranteed, on_approval_cents: pay.onApproval });
     sendSms(r.contractor.phone,
-      `Wrenchmark ${V.jobRef(job.id)}: ${V.symLabel(job.symptom_code)}, ${r.drive_minutes} min away. Payout ${V.money(payout)}. Accept or decline: ${BASE_URL}/tech/${r.contractor.id}?k=${r.contractor.access_token}`,
+      `Wrenchmark ${V.jobRef(job.id)}: ${V.symLabel(job.symptom_code)}, ${r.drive_minutes} min away. ${V.money(pay.guaranteed)} guaranteed on arrival${pay.onApproval ? `, about ${V.money(pay.onApproval)} more if the repair is approved` : ''}. Accept or decline: ${BASE_URL}/tech/${r.contractor.id}?k=${r.contractor.access_token}`,
       job.id);
   }
   db.prepare(`UPDATE jobs SET status='offered' WHERE id=?`).run(job.id);
   return slice.length;
+}
+
+/* Widen to the next wave, or give up honestly and release the hold. */
+function cascade(job, nextWave) {
+  if (nextWave >= M.MAX_WAVES || dispatchWave(job, nextWave) === 0) {
+    db.prepare(`UPDATE jobs SET status='unmatched' WHERE id=?`).run(job.id);
+    logEvent(job.id, null, 'no_match', { waves_tried: nextWave });
+    payments.release(job.id, null, 'no mechanic available');
+    const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(job.customer_id);
+    sendSms(cust.phone, `Wrenchmark ${V.jobRef(job.id)}: we could not find a mechanic for that window, so the hold on your card is released — nothing charged. A coordinator will call you with other options.`, job.id);
+    return false;
+  }
+  return true;
 }
 
 /* ---------- background: expire stale waves, cascade to the next ---------- */
@@ -312,14 +327,7 @@ setInterval(() => {
     if (!job || job.status !== 'offered') continue;
 
     logEvent(job.id, null, 'wave_expired', { wave: row.wave });
-    const next = row.wave + 1;
-    if (next >= M.MAX_WAVES || dispatchWave(job, next) === 0) {
-      db.prepare(`UPDATE jobs SET status='unmatched' WHERE id=?`).run(job.id);
-      logEvent(job.id, null, 'no_match', { waves_tried: next });
-      payments.release(job.id);
-      const cust = db.prepare(`SELECT * FROM customers WHERE id=?`).get(job.customer_id);
-      sendSms(cust.phone, `Wrenchmark ${V.jobRef(job.id)}: we couldn't find a mechanic for that window. Your card hold is released — nothing charged. A coordinator will call with other options.`, job.id);
-    }
+    cascade(job, row.wave + 1);
   }
 }, 15000);
 
@@ -351,6 +359,15 @@ app.post('/jobs/:id/accept', (req, res) => {
    Customer pages stay open — they are already scoped by an unguessable job
    token. Operations needs a password. A mechanic's board is reachable only
    through their own personal link. */
+
+app.get('/health', (req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+    res.json({ ok: true, uptime: Math.round(process.uptime()), time: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'database unavailable' });
+  }
+});
 
 app.get('/login', (req, res) => {
   if (AUTH.isAdmin(req)) return res.redirect(req.query.next || '/admin');
@@ -488,6 +505,15 @@ app.post('/offers/:id/decline', requireTech, (req, res) => {
   if (req.contractorId && o.contractor_id !== req.contractorId) return res.status(403).send(AUTH.deniedPage());
   db.prepare(`UPDATE offers SET status='declined', responded_at=datetime('now') WHERE id=?`).run(o.id);
   logEvent(o.job_id, o.contractor_id, 'offer_declined', null);
+
+  // If nobody in this wave is still holding the offer, widen immediately
+  // rather than making the customer sit out the timer for nothing.
+  const waiting = db.prepare(
+    `SELECT COUNT(*) c FROM offers WHERE job_id=? AND wave=? AND status='sent'`).get(o.job_id, o.wave).c;
+  if (waiting === 0) {
+    const job = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(o.job_id);
+    if (job && job.status === 'offered') cascade(job, o.wave + 1);
+  }
   res.redirect('/tech/' + o.contractor_id);
 });
 
@@ -705,7 +731,39 @@ app.get('/admin/job/:id', (req, res) => {
   res.send(V.jobReport(j, veh, cust, q, dx, media, pay, events, contractor));
 });
 
-app.listen(PORT, () => {
+/* A broken request should return 500, not kill the server. Without this,
+   any unhandled throw in a route takes the whole thing offline. */
+app.use((err, req, res, next) => {
+  console.error('[request error]', req.method, req.originalUrl, err && err.message);
+  if (res.headersSent) return next(err);
+  res.status(500).send(`<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/style.css">
+<div class="shell"><div class="narrow" style="padding-top:80px;text-align:center">
+<h1 style="font-size:26px;font-weight:670;letter-spacing:-.03em;margin:0 0 10px">Something went wrong on our end</h1>
+<p style="color:var(--g500);margin:0 0 24px">Nothing you did. Try again, and if it keeps happening give us a call.</p>
+<a class="btn" href="/">Start over</a></div></div>`);
+});
+
+/* Last line of defence. A crash here would take every in-flight job with it,
+   so we log and keep serving rather than exiting. */
+process.on('uncaughtException', (err) => {
+  console.error('[uncaught]', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandled rejection]', err && err.stack ? err.stack : err);
+});
+
+/* Close the database cleanly so the WAL is checkpointed and nothing is lost. */
+function shutdown(signal) {
+  console.log(`\n${signal} received — closing database and exiting.`);
+  try { db.close(); } catch (e) {}
+  process.exit(0);
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+const server = app.listen(PORT, () => {
   console.log(`Wrenchmark running on ${BASE_URL}`);
   if (!AUTH.hasPassword()) {
     console.log('\n  ⚠  ADMIN_PASSWORD is not set — Operations cannot be opened.');
@@ -714,4 +772,14 @@ app.listen(PORT, () => {
   if (!process.env.SESSION_SECRET) {
     console.log('  Note: SESSION_SECRET unset — sign-ins drop on every restart.\n');
   }
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n  Port ${PORT} is already in use — another copy is still running.`);
+    console.error(`  Fix:  pkill -f "node server.js"   then start again.\n`);
+    process.exit(1);
+  }
+  console.error('[server error]', err);
+  process.exit(1);
 });
