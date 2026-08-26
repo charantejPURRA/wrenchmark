@@ -1,0 +1,180 @@
+/* Wrenchmark mechanic portal — demo styles.
+   Tokens carried over from public/apply.html so intake and portal read as one product. */
+
+:root{
+  --ink:#16191C; --ground:#C7CCC6; --card:#F3F1EB; --line:#B9B4A5;
+  --amber:#E8A33D; --carbon:#2F4B6B; --rust:#8C3B2A; --mute:#6B6E68; --go:#3B6B47;
+  --disp:'Barlow Condensed',sans-serif; --body:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
+  --nav-h:62px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;
+  background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.025) 0 1px,transparent 1px 4px);
+  padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  -webkit-text-size-adjust:100%;
+}
+a{color:var(--carbon)}
+button{font-family:inherit}
+:focus-visible{outline:2px solid var(--carbon);outline-offset:2px}
+
+/* ── shell ───────────────────────────────────────────────────────── */
+.shell{max-width:640px;margin:0 auto;padding:0 12px}
+.topbar{
+  background:var(--ink);color:var(--card);padding:11px 14px;display:flex;
+  align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;z-index:12;
+}
+.brand{font-family:var(--disp);font-weight:700;font-size:21px;letter-spacing:.07em;text-transform:uppercase;line-height:1}
+.brand span{color:var(--amber)}
+.whoami{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;opacity:.72;text-align:right;line-height:1.5}
+
+/* demo-only persona switch. Delete this block and .personaswitch markup to ship. */
+.personaswitch{background:var(--carbon);color:var(--card);padding:6px 14px;display:flex;
+  align-items:center;gap:9px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase}
+.personaswitch b{background:var(--amber);color:var(--ink);padding:1px 6px;font-weight:600;letter-spacing:.1em}
+.personaswitch button{background:none;border:1px solid rgba(243,241,235,.45);color:var(--card);
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;cursor:pointer}
+.personaswitch button[aria-pressed=true]{background:var(--card);color:var(--carbon);border-color:var(--card)}
+
+/* ── cards ───────────────────────────────────────────────────────── */
+.card{background:var(--card);border:1px solid var(--line);box-shadow:0 1px 0 var(--line);margin:12px 0}
+.card > header{padding:13px 15px 11px;border-bottom:1px solid var(--ink);position:relative}
+.card h2{font-family:var(--disp);font-weight:600;font-size:18px;letter-spacing:.09em;text-transform:uppercase;margin:0}
+.card .formno{position:absolute;top:14px;right:15px;font-family:var(--mono);font-size:9px;
+  letter-spacing:.1em;color:var(--mute)}
+.card .body{padding:14px 15px}
+.card .body + .body{border-top:1px dashed var(--line)}
+
+.label{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ── status banner ───────────────────────────────────────────────── */
+.banner{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--go);
+  padding:13px 15px;margin:12px 0}
+.banner.warn{border-left-color:var(--amber)}
+.banner .st{font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:.07em;text-transform:uppercase;line-height:1.15}
+.banner .st i{font-style:normal;color:var(--go)}
+.banner.warn .st i{color:var(--amber)}
+.banner p{margin:5px 0 0;font-size:13.5px;color:var(--mute)}
+.banner p b{color:var(--ink);font-weight:600}
+
+/* ── job card ────────────────────────────────────────────────────── */
+.job{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);
+  padding:12px 14px;margin-bottom:10px;cursor:pointer;position:relative}
+.job:hover,.job:focus-visible{border-color:var(--carbon)}
+.job .when{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--carbon)}
+.job .svc{font-family:var(--disp);font-weight:600;font-size:20px;letter-spacing:.03em;line-height:1.2;margin:2px 0 3px}
+.job .veh{font-size:13px;color:var(--mute)}
+.job .foot{display:flex;justify-content:space-between;align-items:flex-end;margin-top:9px;gap:10px}
+.job .pay{font-family:var(--mono);font-weight:600;font-size:24px;letter-spacing:-.01em;line-height:1}
+.job .pay small{font-family:var(--body);font-size:11px;font-weight:400;color:var(--mute);letter-spacing:0}
+
+.chip{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 7px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
+.chip.go{border-color:var(--go);color:var(--go)}
+.chip.warn{border-color:var(--amber);color:#7d5613}
+.chip.bad{border-color:var(--rust);color:var(--rust)}
+
+/* ── figures row ─────────────────────────────────────────────────── */
+.figs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.fig .n{font-family:var(--mono);font-weight:600;font-size:23px;line-height:1.1;font-variant-numeric:tabular-nums}
+.fig .l{font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--mute);margin-top:3px}
+
+/* ── payout block (job detail) ───────────────────────────────────── */
+.payout{background:var(--ink);color:var(--card);padding:17px 15px}
+.payout .big{font-family:var(--mono);font-weight:600;font-size:44px;line-height:1;letter-spacing:-.02em}
+.payout .to{font-family:var(--disp);font-size:17px;letter-spacing:.1em;text-transform:uppercase;opacity:.75;margin-top:3px}
+.payout .split{margin-top:13px;padding-top:11px;border-top:1px solid rgba(243,241,235,.28);
+  font-family:var(--mono);font-size:11.5px;line-height:1.85;opacity:.85}
+.payout .split b{color:var(--amber);font-weight:500}
+.payout .tbc{color:var(--amber);font-family:var(--mono);font-size:13px}
+
+/* ── definition rows ─────────────────────────────────────────────── */
+dl.kv{display:grid;grid-template-columns:118px 1fr;gap:6px 12px;margin:0;font-size:14px}
+dl.kv dt{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--mute);padding-top:3px}
+dl.kv dd{margin:0}
+.quote{border-left:3px solid var(--carbon);background:rgba(47,75,107,.06);padding:11px 13px;font-size:14.5px}
+ul.lines{margin:0;padding-left:17px;font-size:14px} ul.lines li{margin-bottom:3px}
+.locked{font-family:var(--mono);font-size:11px;color:var(--mute);margin-top:9px;line-height:1.6}
+
+.mapbox{height:120px;border:1px solid var(--line);background:
+  repeating-linear-gradient(45deg,#DCDAD0 0 9px,#E6E3D9 9px 18px);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+
+/* ── table ───────────────────────────────────────────────────────── */
+table.tx{width:100%;border-collapse:collapse;font-size:13.5px}
+table.tx th{font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--mute);
+  text-align:left;padding:0 0 7px;border-bottom:1px solid var(--ink);font-weight:400}
+table.tx td{padding:9px 0;border-bottom:1px dashed var(--line);vertical-align:top}
+table.tx .amt{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:500;white-space:nowrap}
+table.tx .st{text-align:right;width:74px}
+table.tx .d{font-family:var(--mono);font-size:11.5px;color:var(--mute);white-space:nowrap;width:62px}
+table.tx .job{font-family:var(--mono);font-size:10px;color:var(--mute);display:block;background:none;border:0;padding:0;margin:0;cursor:default}
+
+.filters{display:flex;gap:7px;margin-bottom:13px}
+.filters button{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  padding:5px 11px;border:1px solid var(--line);background:none;color:var(--mute);cursor:pointer}
+.filters button[aria-pressed=true]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+
+.note{font-family:var(--mono);font-size:11.5px;line-height:1.7;border:1px solid var(--line);
+  background:#FBFAF6;padding:11px 13px}
+
+/* ── documents ───────────────────────────────────────────────────── */
+.doc{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+  padding:11px 0;border-bottom:1px dashed var(--line)}
+.doc:last-child{border-bottom:0}
+.doc .nm{font-size:14.5px;font-weight:500}
+.doc .sub{font-family:var(--mono);font-size:10.5px;color:var(--mute);margin-top:2px;line-height:1.6}
+.doc .rt{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
+.upload{font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+  border:1px solid var(--carbon);color:var(--carbon);background:none;padding:4px 9px;cursor:pointer}
+.upload:hover{background:var(--carbon);color:var(--card)}
+.why{border-left:3px solid var(--carbon);background:rgba(47,75,107,.06);padding:12px 14px;font-size:14px}
+.why b{font-weight:600}
+
+/* ── actions ─────────────────────────────────────────────────────── */
+.actions{position:sticky;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  background:var(--ground);padding:12px 0 4px;display:grid;gap:9px;z-index:8}
+.btn{display:block;width:100%;padding:15px;background:var(--ink);color:var(--card);border:0;
+  font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:.1em;text-transform:uppercase;
+  cursor:pointer;min-height:52px}
+.btn:hover{background:var(--carbon)}
+.btn:disabled{background:var(--line);color:var(--mute);cursor:default}
+.btn.quiet{background:none;color:var(--mute);border:1px solid var(--line);font-size:16px;padding:11px;min-height:44px}
+.btn.quiet:hover{background:none;border-color:var(--ink);color:var(--ink)}
+
+.back{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--mute);text-decoration:none;padding:12px 0 2px}
+.back:hover{color:var(--ink)}
+
+/* ── empty / loading ─────────────────────────────────────────────── */
+.empty{padding:22px 15px;text-align:center}
+.empty .h{font-family:var(--disp);font-size:19px;letter-spacing:.07em;text-transform:uppercase;margin-bottom:5px}
+.empty p{margin:0;font-size:13.5px;color:var(--mute);max-width:330px;margin:0 auto}
+.loading{padding:26px 15px;text-align:center;font-family:var(--mono);font-size:10.5px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+
+/* ── bottom nav ──────────────────────────────────────────────────── */
+nav.bottom{position:fixed;left:0;right:0;bottom:0;height:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding-bottom:env(safe-area-inset-bottom);background:var(--ink);display:flex;z-index:14}
+nav.bottom a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:rgba(243,241,235,.6);text-decoration:none;font-family:var(--mono);font-size:9px;
+  letter-spacing:.1em;text-transform:uppercase;min-height:44px}
+nav.bottom a[aria-current=page]{color:var(--card);box-shadow:inset 0 3px 0 var(--amber)}
+nav.bottom .ic{font-family:var(--disp);font-size:17px;font-weight:600;letter-spacing:.04em;line-height:1}
+
+.toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 18px);transform:translateX(-50%);
+  background:var(--ink);color:var(--card);padding:11px 17px;font-family:var(--mono);font-size:11.5px;
+  z-index:20;display:none;max-width:90vw;text-align:center}
+.toast.on{display:block}
+
+@media (min-width:760px){
+  :root{--nav-h:0px}
+  body{padding-bottom:26px}
+  nav.bottom{position:static;height:auto;padding:0;max-width:640px;margin:12px auto 0}
+  nav.bottom a{padding:11px 6px}
+  .actions{position:static}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

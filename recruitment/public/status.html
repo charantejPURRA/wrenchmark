@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16191C">
+<title>Wrenchmark — Application Status</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#16191C; --ground:#C7CCC6; --card:#F3F1EB; --line:#B9B4A5;
+    --amber:#E8A33D; --carbon:#2F4B6B; --rust:#8C3B2A; --mute:#6B6E68; --go:#3B6B47;
+    --disp:'Barlow Condensed',sans-serif; --body:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);
+       font-size:15px;line-height:1.55;padding:22px 14px 56px;
+       background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.025) 0 1px,transparent 1px 4px)}
+  :focus-visible{outline:2px solid var(--carbon);outline-offset:2px}
+  a{color:var(--carbon)}
+  .sheet{max-width:560px;margin:0 auto;background:var(--card);border:1px solid var(--line);
+         box-shadow:0 1px 0 var(--line),0 12px 32px rgba(0,0,0,.14)}
+  header{padding:18px 22px 15px;border-bottom:2px solid var(--ink);position:relative}
+  .marque{font-family:var(--disp);font-weight:700;font-size:31px;letter-spacing:.06em;
+          text-transform:uppercase;line-height:1}
+  .marque span{color:var(--amber)}
+  .sub{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+       color:var(--mute);margin-top:5px}
+  .formno{position:absolute;top:18px;right:22px;font-family:var(--mono);font-size:10px;
+          letter-spacing:.1em;color:var(--mute);text-align:right;line-height:1.5}
+  .body{padding:20px 22px}
+  label.f{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.11em;
+          text-transform:uppercase;color:var(--mute);margin-bottom:5px}
+  input{width:100%;padding:11px 10px;font-family:var(--mono);font-size:16px;color:var(--ink);
+        background:#FBFAF6;border:1px solid var(--line);border-radius:0;letter-spacing:.06em}
+  input:focus{outline:2px solid var(--carbon);outline-offset:1px;border-color:var(--carbon)}
+  .row{display:grid;gap:13px;margin-bottom:14px}
+  @media(min-width:460px){.row.two{grid-template-columns:1fr 1fr}}
+  button{width:100%;padding:14px;background:var(--ink);color:var(--card);border:0;min-height:50px;
+         font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:.09em;
+         text-transform:uppercase;cursor:pointer}
+  button:hover{background:var(--carbon)}
+  button:disabled{background:var(--line);color:var(--mute);cursor:default}
+  .msg{display:none;margin-bottom:14px;padding:11px 13px;font-size:14px;
+       border-left:3px solid var(--rust);background:rgba(140,59,42,.08)}
+  .msg.on{display:block}
+  .fine{font-family:var(--mono);font-size:10.5px;color:var(--mute);padding:0 22px 20px;line-height:1.6}
+
+  #result{display:none}
+  #result.on{display:block}
+  .who{padding:18px 22px;border-bottom:1px dashed var(--line)}
+  .who .nm{font-family:var(--disp);font-size:26px;font-weight:700;letter-spacing:.03em;line-height:1.15}
+  .who .rf{font-family:var(--mono);font-size:10.5px;letter-spacing:.11em;color:var(--mute);margin-top:3px}
+  .banner{margin:18px 22px;padding:13px 15px;background:#FBFAF6;border:1px solid var(--line);
+          border-left:5px solid var(--amber)}
+  .banner.go{border-left-color:var(--go)}
+  .banner.bad{border-left-color:var(--rust)}
+  .banner .st{font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:.06em;
+              text-transform:uppercase;line-height:1.15}
+  .banner p{margin:5px 0 0;font-size:13.5px;color:var(--mute)}
+  .road{padding:4px 22px 22px}
+  .road h3{font-family:var(--disp);font-size:17px;letter-spacing:.09em;text-transform:uppercase;
+           margin:0 0 14px;padding-bottom:6px;border-bottom:1px solid var(--ink)}
+  .stage{display:flex;gap:13px;padding:11px 0;border-bottom:1px dashed var(--line)}
+  .stage:last-child{border-bottom:0}
+  .stage .dot{flex:none;width:22px;height:22px;border:2px solid var(--line);border-radius:50%;
+              display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+              font-size:10px;color:var(--mute);margin-top:1px}
+  .stage.now .dot{border-color:var(--amber);background:var(--amber);color:var(--ink);font-weight:600}
+  .stage.past .dot{border-color:var(--go);background:var(--go);color:var(--card)}
+  .stage .t{font-family:var(--disp);font-size:17px;font-weight:600;letter-spacing:.03em;line-height:1.25}
+  .stage:not(.now):not(.past) .t{color:var(--mute)}
+  .stage .d{font-size:13px;color:var(--mute);margin-top:2px}
+  .stage.now .d{color:var(--ink)}
+  .cta{display:block;text-align:center;margin:0 22px 20px;padding:14px;background:var(--ink);
+       color:var(--card);text-decoration:none;font-family:var(--disp);font-weight:700;
+       font-size:19px;letter-spacing:.09em;text-transform:uppercase}
+  .cta:hover{background:var(--carbon)}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <div class="marque">Wrench<span>mark</span></div>
+    <div class="sub">Application status</div>
+    <div class="formno">FORM WM-1S</div>
+  </header>
+
+  <div class="body" id="lookup">
+    <div id="msg" class="msg"></div>
+    <p style="margin:0 0 16px;font-size:14px">
+      Enter the application number we gave you and the last four digits of the phone
+      number you applied with.
+    </p>
+    <div class="row two">
+      <div><label class="f" for="ref">Application number</label>
+        <input id="ref" type="text" placeholder="WM-0001" autocapitalize="characters"></div>
+      <div><label class="f" for="last4">Last 4 of your phone</label>
+        <input id="last4" type="text" inputmode="numeric" maxlength="4" placeholder="0142"></div>
+    </div>
+    <button id="go">Check status</button>
+  </div>
+
+  <div id="result">
+    <div class="who"><div class="nm" id="r-name"></div><div class="rf" id="r-ref"></div></div>
+    <div class="banner" id="r-banner"><div class="st" id="r-st"></div><p id="r-note"></p></div>
+    <a class="cta" id="r-cta" href="dashboard" style="display:none">Open your portal</a>
+    <div class="road"><h3>Your enrollment</h3><div id="r-stages"></div></div>
+  </div>
+
+  <p class="fine">
+    Questions? Text John. Haven't applied yet? <a href="apply">Start here</a>.
+  </p>
+</div>
+
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+var esc = function(s){ return String(s==null?'':s).replace(/[<>&"]/g,function(c){
+  return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]; }); };
+
+var STAGES = [
+  ['Application received', 'On John\u2019s board.'],
+  ['Phone screen',         'John calls within two business days. Ten minutes, no test.'],
+  ['Interview',            'A longer conversation about the work you do and the jobs you want.'],
+  ['Background check',     'Standard check. We tell you before it runs and we cover the cost.'],
+  ['Enrollment',           'Portal access, set your area and hours, send your insurance certificate.'],
+  ['Active',               'Jobs reach your phone. You accept the ones you want.']
+];
+
+$('go').addEventListener('click', function(){
+  var ref = $('ref').value.trim().toUpperCase();
+  var last4 = $('last4').value.trim();
+  var msg = $('msg');
+  msg.className = 'msg';
+
+  if (!ref || !last4) {
+    msg.textContent = 'We need both the application number and the last four digits.';
+    msg.className = 'msg on';
+    return;
+  }
+
+  var btn = $('go');
+  btn.disabled = true; btn.textContent = 'Checking\u2026';
+
+  fetch('api/status', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ ref: ref, last4: last4 })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (!d.ok) throw new Error(d.error || 'We could not find that.');
+    show(d);
+  })
+  .catch(function(e){
+    msg.textContent = e.message;
+    msg.className = 'msg on';
+    btn.disabled = false; btn.textContent = 'Check status';
+  });
+});
+
+function show(d){
+  $('lookup').style.display = 'none';
+  $('result').className = 'on';
+  $('r-name').textContent = d.first_name;
+  $('r-ref').textContent = d.ref + (d.cluster ? ' \u00b7 ' + d.cluster : ' \u00b7 waiting list');
+
+  var b = $('r-banner');
+  b.className = 'banner' + (d.stage_index >= 5 ? ' go' : d.closed ? ' bad' : '');
+  $('r-st').textContent = d.headline;
+  $('r-note').textContent = d.note;
+
+  if (d.portal_open) $('r-cta').style.display = '';
+
+  if (d.closed) { $('r-stages').innerHTML = ''; return; }
+
+  $('r-stages').innerHTML = STAGES.map(function(s, i){
+    var cls = i < d.stage_index ? 'stage past' : i === d.stage_index ? 'stage now' : 'stage';
+    var mark = i < d.stage_index ? '\u2713' : String(i + 1);
+    return '<div class="'+cls+'"><div class="dot">'+mark+'</div>'+
+           '<div><div class="t">'+esc(s[0])+'</div><div class="d">'+esc(s[1])+'</div></div></div>';
+  }).join('');
+  window.scrollTo(0,0);
+}
+})();
+</script>
+</body>
+</html>

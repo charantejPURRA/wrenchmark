@@ -1,0 +1,35 @@
+# Render blueprint. New → Blueprint → pick this repo → Apply.
+#
+# The "starter" plan is $7/month and is what makes this reliable: the free plan
+# sleeps after 15 minutes of inactivity (~50 second cold start on the next
+# visit) and cannot mount a disk, so the database would reset on every deploy.
+# For a link a customer or a mechanic might open at any hour, that isn't good
+# enough.
+
+services:
+  - type: web
+    name: wrenchmark
+    runtime: node
+    plan: starter
+    region: ohio                 # closest Render region to Minnesota
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /health     # Render restarts the service if this fails
+    autoDeploy: true             # every push to main goes live
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data         # database and photos live on the disk below
+      - key: SESSION_SECRET
+        generateValue: true      # Render generates and stores this for you
+      - key: ADMIN_PASSWORD
+        sync: false              # set in the dashboard — never commit it
+      - key: BASE_URL
+        sync: false              # https://wrenchmark.onrender.com or your domain
+      - key: ANTHROPIC_API_KEY
+        sync: false              # optional
+    disk:
+      name: wrenchmark-data
+      mountPath: /var/data       # survives deploys and restarts
+      sizeGB: 1

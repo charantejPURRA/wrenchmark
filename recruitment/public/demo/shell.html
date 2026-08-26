@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16191C">
+<title>Wrenchmark — Mechanic</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="__WM_BASE__/demo.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Wrench<span>mark</span></div>
+  <div class="whoami" id="whoami"></div>
+</header>
+
+<!-- DEMO ONLY. Remove this element and the .personaswitch CSS block to ship. -->
+<div class="personaswitch">
+  <b>Demo</b>
+  <span>View as</span>
+  <button id="p-active" aria-pressed="true">Active</button>
+  <button id="p-registered" aria-pressed="false">Registered</button>
+</div>
+
+<main class="shell" id="view"><div class="loading">Loading…</div></main>
+
+<nav class="bottom" id="nav">
+  <a href="__WM_BASE__/dashboard"><span class="ic">WM</span>Home</a>
+  <a href="__WM_BASE__/jobs"><span class="ic">JB</span>Jobs</a>
+  <a href="__WM_BASE__/earnings"><span class="ic">$</span>Earnings</a>
+  <a href="__WM_BASE__/documents"><span class="ic">DOC</span>Docs</a>
+  <a href="__WM_BASE__/profile"><span class="ic">ME</span>Profile</a>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script src="__WM_BASE__/demo-data.js"></script>
+<script src="__WM_BASE__/services.js"></script>
+<script>
+(function(){
+'use strict';
+var BASE = '__WM_BASE__';
+var V = document.getElementById('view');
+var M = WM.money;
+
+function esc(s){ return String(s==null?'':s).replace(/[<>&"]/g,function(c){
+  return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]; }); }
+function loading(){ V.innerHTML = '<div class="loading">Loading…</div>'; }
+function toast(t){
+  var el = document.getElementById('toast');
+  el.textContent = t; el.className = 'toast on';
+  clearTimeout(el._t); el._t = setTimeout(function(){ el.className='toast'; }, 3200);
+}
+function pay(n){ return n === null ? '<span class="tbc">— to be confirmed —</span>' : M.round(n); }
+
+/* ── status banner, shared by dashboard and documents ───────────────── */
+function banner(m){
+  if (m.dispatchable) {
+    return '<div class="banner"><div class="st"><i>●</i> Active — ready for jobs</div>'+
+      '<p>You are eligible for work in '+esc(m.cluster_label)+' and within '+m.radius_mi+' miles.</p></div>';
+  }
+  var b = m.blockers.length
+    ? 'Still needed before your first job: <b>'+m.blockers.map(esc).join(', ')+'</b>.'
+    : 'Your account is being reviewed.';
+  return '<div class="banner warn"><div class="st"><i>●</i> Registered — not yet dispatchable</div>'+
+    '<p>'+b+' Nothing else is required from you today.</p></div>';
+}
+
+/* ── job card ───────────────────────────────────────────────────────── */
+function jobCard(j, showDistance){
+  var when = showDistance
+    ? j.distance_mi + ' mi · ' + j.day + ' · ' + j.window
+    : j.day + ' · ' + j.window;
+  return '<button class="job" data-job="'+j.id+'">'+
+    '<div class="when">'+esc(when)+'</div>'+
+    '<div class="svc">'+esc(j.service)+'</div>'+
+    '<div class="veh">'+j.vehicle.year+' '+esc(j.vehicle.make)+' '+esc(j.vehicle.model)+
+      ' · '+esc(j.cluster_label)+'</div>'+
+    '<div class="foot"><div class="pay">'+pay(j.split.payout)+' <small>to you</small></div>'+
+    '<span class="chip'+(j.status==='ACCEPTED'?' go':'')+'">'+esc(j.status)+'</span></div>'+
+  '</button>';
+}
+
+function wireJobs(){
+  Array.prototype.forEach.call(V.querySelectorAll('[data-job]'), function(el){
+    el.addEventListener('click', function(){ go(BASE + '/job/' + el.dataset.job); });
+  });
+}
+
+/* ── 1. dashboard ───────────────────────────────────────────────────── */
+function dashboard(){
+  loading();
+  Promise.all([WM.mechanicService.get(), WM.jobService.listToday(),
+               WM.jobService.listNearby(), WM.earningsService.summary()])
+  .then(function(r){
+    var m = r[0], today = r[1], nearby = r[2], e = r[3];
+
+    var founding = m.is_founding
+      ? '<div class="note" style="margin-top:12px">Founding mechanic — you keep <b>100%</b> of every job through '+
+        esc(m.founding_until)+'. After that, '+WM.RATES.founding_locked_take_pct+
+        '% to Wrenchmark, locked for as long as you drive with us. Standard rate is '+
+        WM.RATES.platform_take_pct+'%.</div>' : '';
+
+    V.innerHTML =
+      banner(m) + founding +
+
+      '<section class="card"><header><h2>Today</h2><span class="formno">'+esc(m.id)+'</span></header>'+
+        '<div class="body">'+ (today.length
+          ? today.map(function(j){ return jobCard(j, false); }).join('')
+          : '<div class="empty"><div class="h">Nothing booked today</div>'+
+            '<p>'+(m.dispatchable
+              ? 'Accept a job below and it lands here.'
+              : 'Jobs appear here once your account is dispatchable.')+'</p></div>') +
+        '</div></section>' +
+
+      (m.dispatchable ?
+      '<section class="card"><header><h2>This week</h2></header><div class="body">'+
+        '<div class="figs">'+
+          '<div class="fig"><div class="n">'+M.round(e.week.earned)+'</div><div class="l">Earned</div></div>'+
+          '<div class="fig"><div class="n">'+e.week.jobs+'</div><div class="l">Jobs</div></div>'+
+          '<div class="fig"><div class="n">'+M.round(e.week.earned/e.week.jobs)+'</div><div class="l">Average</div></div>'+
+        '</div></div></section>' : '') +
+
+      '<section class="card"><header><h2>Nearby now</h2></header><div class="body">'+
+        (nearby.length
+          ? nearby.map(function(j){ return jobCard(j, true); }).join('')
+          : '<div class="empty"><div class="h">No jobs nearby right now</div>'+
+            '<p>'+(m.dispatchable
+              ? 'We text you the moment one comes in that matches your area and skills. You are not expected to sit and watch this screen.'
+              : 'Once your paperwork clears you will start receiving jobs in your area.')+'</p></div>')+
+      '</div></section>';
+
+    wireJobs();
+  });
+}
+
+/* ── 2. jobs list ───────────────────────────────────────────────────── */
+function jobs(){
+  loading();
+  Promise.all([WM.mechanicService.get(), WM.jobService.listToday(), WM.jobService.listNearby()])
+  .then(function(r){
+    var m = r[0], today = r[1], nearby = r[2];
+    V.innerHTML =
+      '<section class="card"><header><h2>Your jobs</h2></header><div class="body">'+
+        (today.length ? today.map(function(j){ return jobCard(j,false); }).join('')
+          : '<div class="empty"><div class="h">Nothing accepted yet</div><p>Accepted jobs show up here with the customer address and phone number.</p></div>')+
+      '</div></section>'+
+      '<section class="card"><header><h2>Available</h2></header><div class="body">'+
+        (nearby.length ? nearby.map(function(j){ return jobCard(j,true); }).join('')
+          : '<div class="empty"><div class="h">Nothing available</div><p>'+
+            (m.dispatchable ? 'We text you when a job matches your area.' : 'Your account is not dispatchable yet.')+
+            '</p></div>')+
+      '</div></section>';
+    wireJobs();
+  });
+}
+
+/* ── 3. job detail ──────────────────────────────────────────────────── */
+function job(id){
+  loading();
+  WM.jobService.get(id).then(function(j){
+    if (!j) { V.innerHTML = '<div class="empty"><div class="h">Job not found</div></div>'; return; }
+    var s = j.split;
+    var v = j.vehicle;
+
+    var splitLine = s.payout === null
+      ? '<div class="split">Payout terms not set for this job type yet.</div>'
+      : '<div class="split">Customer pays '+M.round(s.customer)+'<br>'+
+        'Wrenchmark keeps <b>'+M.round(s.platform)+'</b>'+(s.take_pct===0?' — founding mechanic rate':' ('+s.take_pct+'%)')+'</div>';
+
+    V.innerHTML =
+      '<a class="back" href="__WM_BASE__/dashboard">&larr; Back</a>'+
+
+      '<section class="card">'+
+        '<header><h2>'+v.year+' '+esc(v.make)+' '+esc(v.model)+'</h2>'+
+          '<span class="formno">'+esc(j.id)+'</span></header>'+
+
+        '<div class="payout">'+
+          '<div class="big">'+pay(s.payout)+'</div>'+
+          '<div class="to">To you</div>'+
+          splitLine+
+        '</div>'+
+
+        '<div class="body"><div class="label" style="margin-bottom:7px">What the customer said</div>'+
+          '<div class="quote">"'+esc(j.complaint)+'"</div></div>'+
+
+        '<div class="body"><div class="label" style="margin-bottom:7px">Requested work</div>'+
+          '<ul class="lines"><li>'+j.line_items.map(esc).join('</li><li>')+'</li></ul>'+
+          '<div class="locked">Estimated labor '+j.labor_hours+' hr</div></div>'+
+
+        '<div class="body"><div class="label" style="margin-bottom:9px">Vehicle</div>'+
+          '<dl class="kv">'+
+            '<dt>Trim</dt><dd>'+esc(v.trim)+'</dd>'+
+            '<dt>Mileage</dt><dd class="mono">'+v.miles.toLocaleString()+'</dd>'+
+            '<dt>Engine</dt><dd>'+esc(v.engine)+'</dd>'+
+            '<dt>VIN</dt><dd class="mono">'+esc(v.vin)+'</dd>'+
+            '<dt>Plate</dt><dd class="mono">'+esc(v.plate)+'</dd>'+
+          '</dl></div>'+
+
+        '<div class="body"><div class="label" style="margin-bottom:9px">Where and when</div>'+
+          '<dl class="kv">'+
+            '<dt>Area</dt><dd>'+esc(j.neighborhood)+' — '+esc(j.cluster_label)+'</dd>'+
+            (j.address ? '<dt>Address</dt><dd>'+esc(j.address)+'</dd>' : '')+
+            '<dt>Distance</dt><dd class="mono">'+j.distance_mi+' mi</dd>'+
+            '<dt>Window</dt><dd>'+esc(j.day)+' · '+esc(j.window)+'</dd>'+
+          '</dl>'+
+          '<div class="mapbox" style="margin-top:11px">Map</div></div>'+
+
+        '<div class="body"><div class="label" style="margin-bottom:9px">Customer</div>'+
+          '<dl class="kv">'+
+            '<dt>Name</dt><dd>'+esc(j.customer.first)+' '+esc(j.customer.last_initial)+'.</dd>'+
+            '<dt>Phone</dt><dd class="mono">'+esc(j.customer.phone || j.customer.phone_masked)+'</dd>'+
+          '</dl>'+
+          (j.accepted || j.status === 'SCHEDULED'
+            ? ''
+            : '<div class="locked">Full address and phone number unlock when you accept.</div>')+
+        '</div>'+
+      '</section>'+
+
+      (j.accepted || j.status === 'SCHEDULED'
+        ? '<div class="note">Accepted. The customer has been told to expect you '+
+          esc(j.day.toLowerCase())+' between '+esc(j.window)+'.</div>'
+        : '<div class="actions">'+
+            '<button class="btn" id="accept">Accept job</button>'+
+            '<button class="btn quiet" id="decline">Decline</button>'+
+          '</div>');
+
+    var a = document.getElementById('accept');
+    if (a) {
+      a.addEventListener('click', function(){
+        a.disabled = true; a.textContent = 'Accepting…';
+        WM.jobService.accept(j.id).then(function(){
+          toast('Accepted. Address and phone unlocked.');
+          go(BASE + '/dashboard');
+        });
+      });
+      document.getElementById('decline').addEventListener('click', function(){
+        toast('Declined. It goes to the next mechanic in the area.');
+        go(BASE + '/dashboard');
+      });
+    }
+  });
+}
+
+/* ── 4. earnings ────────────────────────────────────────────────────── */
+var txFilter = 'ALL';
+function earnings(){
+  loading();
+  Promise.all([WM.mechanicService.get(), WM.earningsService.summary(), WM.earningsService.transactions(txFilter)])
+  .then(function(r){
+    var m = r[0], e = r[1], tx = r[2];
+
+    if (!m.dispatchable) {
+      V.innerHTML = '<section class="card"><header><h2>Earnings</h2></header>'+
+        '<div class="body"><div class="empty"><div class="h">No earnings yet</div>'+
+        '<p>Your first payout shows up here after your first completed job.</p></div></div>'+
+        '<div class="body"><div class="note">'+esc(e.cadence)+'</div></div></section>';
+      return;
+    }
+
+    V.innerHTML =
+      '<section class="card"><header><h2>'+esc(e.month)+'</h2><span class="formno">'+esc(m.id)+'</span></header>'+
+        '<div class="body">'+
+          '<div class="fig"><div class="n" style="font-size:38px">'+M.exact(e.total)+'</div>'+
+          '<div class="l">Earned this month</div></div>'+
+          '<div class="figs" style="margin-top:15px">'+
+            '<div class="fig"><div class="n">'+e.jobs+'</div><div class="l">Jobs</div></div>'+
+            '<div class="fig"><div class="n">'+M.round(e.average)+'</div><div class="l">Average</div></div>'+
+            '<div class="fig"><div class="n">'+M.round(e.pending)+'</div><div class="l">Pending</div></div>'+
+          '</div></div>'+
+        '<div class="body"><div class="note">'+esc(e.cadence)+'<br>'+
+          M.exact(e.paid)+' paid · '+M.exact(e.pending)+' pending</div></div>'+
+      '</section>'+
+
+      '<section class="card"><header><h2>Payouts</h2></header><div class="body">'+
+        '<div class="filters">'+
+          ['ALL','PENDING','PAID'].map(function(f){
+            return '<button data-f="'+f+'" aria-pressed="'+(txFilter===f)+'">'+f.toLowerCase()+'</button>';
+          }).join('')+
+        '</div>'+
+        (tx.length ?
+        '<table class="tx"><thead><tr><th>Date</th><th>Service</th><th class="amt">Payout</th><th class="st">Status</th></tr></thead><tbody>'+
+          tx.map(function(t){
+            return '<tr><td class="d">'+esc(t.date)+'</td>'+
+              '<td>'+esc(t.service)+'<span class="job">'+esc(t.job)+'</span></td>'+
+              '<td class="amt">'+M.exact(t.amount)+'</td>'+
+              '<td class="st"><span class="chip'+(t.status==='PAID'?' go':' warn')+'">'+esc(t.status)+'</span></td></tr>';
+          }).join('')+
+        '</tbody></table>'
+        : '<div class="empty"><div class="h">Nothing here</div><p>No payouts match that filter.</p></div>')+
+      '</div></section>';
+
+    Array.prototype.forEach.call(V.querySelectorAll('[data-f]'), function(b){
+      b.addEventListener('click', function(){ txFilter = b.dataset.f; earnings(); });
+    });
+  });
+}
+
+/* ── 5. documents ───────────────────────────────────────────────────── */
+function documents(){
+  loading();
+  Promise.all([WM.mechanicService.get(), WM.documentService.list()]).then(function(r){
+    var m = r[0], docs = r[1];
+
+    V.innerHTML =
+      banner(m) +
+      '<section class="card"><header><h2>Verification</h2><span class="formno">'+esc(m.id)+'</span></header>'+
+        '<div class="body"><div class="why">'+
+          '<b>Why we ask for this.</b> Garagekeepers is the one most mechanics do not carry. '+
+          'General liability does not cover the customer\'s vehicle while you are working on it — '+
+          'garagekeepers does. If you do not have it yet, we will put you in touch with a broker who '+
+          'knows this business. Nothing is required until you take your first job.'+
+        '</div></div>'+
+        '<div class="body">'+ docs.map(docRow).join('') +'</div>'+
+      '</section>';
+  });
+}
+
+function docRow(d){
+  var cls = { VERIFIED:'go', CLEAR:'go', 'ON FILE':'go', PENDING:'warn', MISSING:'bad' }[d.state] || '';
+  var sub = [];
+  if (d.expires)  sub.push('Expires ' + d.expires);
+  if (d.on)       sub.push('Confirmed ' + d.on);
+  if (d.note)     sub.push(d.note);
+  if (d.expiring_soon) sub.push('Expires in ' + d.days_to_expiry + ' days. Send the renewal to stay dispatchable.');
+  if (d.state === 'MISSING') sub.push('Needed before your first dispatch.');
+
+  var showUpload = d.state === 'MISSING' || d.expiring_soon;
+  return '<div class="doc">'+
+    '<div><div class="nm">'+esc(d.label)+'</div>'+
+      (sub.length ? '<div class="sub">'+sub.map(esc).join('<br>')+'</div>' : '')+
+    '</div>'+
+    '<div class="rt"><span class="chip '+cls+(d.expiring_soon && cls==='go' ? ' warn':'')+'">'+esc(d.state)+'</span>'+
+      (showUpload ? '<button class="upload" data-up="'+esc(d.label)+'">Upload</button>' : '')+
+    '</div></div>';
+}
+
+
+/* ── 6. profile ─────────────────────────────────────────────────────── */
+function profile(){
+  loading();
+  WM.mechanicService.get().then(function(m){
+    var rating = m.rating === null
+      ? '<div class="fig"><div class="n">—</div><div class="l">No jobs yet</div></div>'
+      : '<div class="fig"><div class="n">'+m.rating.toFixed(1)+' &#9733;</div><div class="l">Rating</div></div>'+
+        '<div class="fig"><div class="n">'+m.completed_jobs+'</div><div class="l">Completed</div></div>'+
+        '<div class="fig"><div class="n">'+m.years+'</div><div class="l">Years</div></div>';
+
+    V.innerHTML =
+      '<section class="card">'+
+        '<header><h2>'+esc(m.full_name)+'</h2><span class="formno">'+esc(m.id)+'</span></header>'+
+        '<div class="body">'+
+          '<div class="label">'+esc(m.title)+'</div>'+
+          '<p style="margin:9px 0 0;font-size:14px">'+esc(m.bio)+'</p>'+
+        '</div>'+
+        '<div class="body"><div class="figs">'+rating+'</div></div>'+
+        '<div class="body"><dl class="kv">'+
+          '<dt>Area</dt><dd>'+esc(m.cluster_label)+' · '+m.radius_mi+' mi radius</dd>'+
+          '<dt>Vehicle</dt><dd>'+esc(m.vehicle)+'</dd>'+
+          '<dt>With us</dt><dd>Since '+esc(m.joined)+'</dd>'+
+        '</dl></div>'+
+      '</section>'+
+
+      '<section class="card"><header><h2>What you work on</h2></header>'+
+        '<div class="body">'+ tags(m.skills) +
+          '<div class="locked">These decide which jobs reach you.</div></div></section>'+
+
+      '<section class="card"><header><h2>Tools you carry</h2></header>'+
+        '<div class="body">'+ tags(m.equipment) +'</div></section>'+
+
+      '<section class="card"><header><h2>When you work</h2></header>'+
+        '<div class="body">'+ tags(m.availability) +'</div></section>'+
+
+      (m.certifications.length
+        ? '<section class="card"><header><h2>Certifications</h2></header>'+
+          '<div class="body">'+ tags(m.certifications) +'</div></section>'
+        : '')+
+
+      '<div class="note">Anything here wrong? Text John and we will fix it. '+
+      'Editing from the app is coming.</div>';
+  });
+}
+
+function tags(list){
+  if (!list || !list.length) return '<div class="locked">Nothing listed yet.</div>';
+  return '<div class="flags">'+ list.map(function(t){
+    return '<span class="f" style="font-size:11px;padding:4px 8px">'+esc(t)+'</span>';
+  }).join('') +'</div>';
+}
+
+/* ── router ─────────────────────────────────────────────────────────── */
+function render(){
+  var p = location.pathname.replace(/\/+$/,'');
+  var m;
+  if ((m = p.match(/\/job\/([\w-]+)$/))) job(m[1]);
+  else if (/\/jobs$/.test(p))      jobs();
+  else if (/\/earnings$/.test(p))  earnings();
+  else if (/\/documents$/.test(p)) documents();
+  else if (/\/profile$/.test(p))   profile();
+  else                             dashboard();
+
+  Array.prototype.forEach.call(document.querySelectorAll('nav.bottom a'), function(a){
+    var on = a.getAttribute('href') === p ||
+             (/\/job\//.test(p) && /\/jobs$/.test(a.getAttribute('href')));
+    if (on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');
+  });
+  window.scrollTo(0,0);
+}
+
+function go(path){ history.pushState({}, '', path); render(); }
+window.addEventListener('popstate', render);
+
+document.addEventListener('click', function(e){
+  var a = e.target.closest && e.target.closest('a[href^="' + BASE + '"]');
+  if (a) { e.preventDefault(); go(a.getAttribute('href')); }
+  var up = e.target.closest && e.target.closest('[data-up]');
+  if (up) toast('Upload is not wired up in the demo.');
+});
+
+/* persona switch — demo only */
+function persona(key){
+  WM.mechanicService.setPersona(key).then(function(){
+    document.getElementById('p-active').setAttribute('aria-pressed', String(key==='ACTIVE'));
+    document.getElementById('p-registered').setAttribute('aria-pressed', String(key==='REGISTERED'));
+    WM.mechanicService.get().then(function(m){
+      document.getElementById('whoami').innerHTML = esc(m.full_name)+'<br>'+esc(m.id)+' · '+esc(m.status);
+    });
+    go(BASE + '/dashboard');
+  });
+}
+document.getElementById('p-active').addEventListener('click', function(){ persona('ACTIVE'); });
+document.getElementById('p-registered').addEventListener('click', function(){ persona('REGISTERED'); });
+
+WM.mechanicService.get().then(function(m){
+  document.getElementById('whoami').innerHTML = esc(m.full_name)+'<br>'+esc(m.id)+' · '+esc(m.status);
+  render();
+});
+})();
+</script>
+</body>
+</html>

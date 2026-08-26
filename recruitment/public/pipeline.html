@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wrenchmark — Recruitment Pipeline</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#16191C; --ground:#C7CCC6; --card:#F3F1EB; --line:#B9B4A5;
+    --amber:#E8A33D; --carbon:#2F4B6B; --rust:#8C3B2A; --mute:#6B6E68; --go:#3B6B47;
+    --disp:'Barlow Condensed',sans-serif; --body:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);font-size:14px;padding:20px 16px 60px}
+  .wrap{max-width:1240px;margin:0 auto}
+  h1{font-family:var(--disp);font-weight:700;font-size:30px;letter-spacing:.06em;text-transform:uppercase;margin:0}
+  h1 span{color:var(--amber)}
+  .head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;
+        border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:18px}
+  .head .sub{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mute)}
+
+  /* G1 gate strip */
+  .gate{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--amber);
+        padding:14px 16px;margin-bottom:18px}
+  .gate.met{border-left-color:var(--go)}
+  .gate h2{font-family:var(--disp);font-size:17px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 10px}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px}
+  .metric .n{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1.1}
+  .metric .n b{font-size:14px;font-weight:400;color:var(--mute)}
+  .metric .l{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--mute);margin-top:3px}
+  .metric.short .n{color:var(--rust)} .metric.ok .n{color:var(--go)}
+  .clusters{margin-top:12px;padding-top:11px;border-top:1px dashed var(--line);
+            display:flex;gap:8px;flex-wrap:wrap}
+  .cl{font-family:var(--mono);font-size:10.5px;padding:4px 9px;border:1px solid var(--line);background:#FBFAF6}
+  .cl.zero{border-color:var(--rust);color:var(--rust)}
+  .cl b{font-weight:600}
+
+  .board{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:12px;align-items:start}
+  .col{background:rgba(243,241,235,.5);border:1px solid var(--line);min-height:90px}
+  .col h3{font-family:var(--disp);font-size:14px;letter-spacing:.1em;text-transform:uppercase;
+          margin:0;padding:9px 11px;background:var(--ink);color:var(--card);display:flex;justify-content:space-between}
+  .col h3 em{font-family:var(--mono);font-style:normal;font-size:11px;opacity:.75}
+  .col.gated h3{background:var(--carbon)}
+  .stack{padding:9px;display:grid;gap:9px}
+
+  .rec{background:var(--card);border:1px solid var(--line);padding:10px 11px;cursor:pointer;position:relative}
+  .rec:hover{border-color:var(--carbon)}
+  .rec .ref{font-family:var(--mono);font-size:10px;letter-spacing:.09em;color:var(--mute)}
+  .rec .nm{font-family:var(--disp);font-size:17px;font-weight:600;letter-spacing:.03em;line-height:1.2;margin:1px 0 4px}
+  .rec .meta{font-family:var(--mono);font-size:10px;color:var(--mute);line-height:1.6}
+  .flags{display:flex;gap:4px;margin-top:7px;flex-wrap:wrap}
+  .f{font-family:var(--mono);font-size:9px;letter-spacing:.06em;padding:2px 5px;border:1px solid var(--line);color:var(--mute)}
+  .f.on{border-color:var(--go);color:var(--go)} .f.off{border-color:var(--rust);color:var(--rust)}
+  .f.warn{border-color:var(--amber);color:#8a6117}
+
+  .empty{padding:16px 11px;font-family:var(--mono);font-size:10.5px;color:var(--mute);line-height:1.6}
+
+  /* detail drawer */
+  .scrim{position:fixed;inset:0;background:rgba(22,25,28,.5);display:none;z-index:20}
+  .scrim.on{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(470px,100%);background:var(--card);
+          border-left:2px solid var(--ink);overflow-y:auto;transform:translateX(100%);
+          transition:transform .2s ease;z-index:21}
+  .drawer.on{transform:none}
+  @media(prefers-reduced-motion:reduce){.drawer{transition:none}}
+  .dhead{padding:16px 18px;border-bottom:2px solid var(--ink);position:sticky;top:0;background:var(--card)}
+  .dhead .x{position:absolute;top:14px;right:16px;background:none;border:0;font-size:22px;cursor:pointer;color:var(--mute)}
+  .dsec{padding:16px 18px;border-bottom:1px dashed var(--line)}
+  .dsec h4{font-family:var(--disp);font-size:14px;letter-spacing:.1em;text-transform:uppercase;
+           margin:0 0 10px;padding-bottom:5px;border-bottom:1px solid var(--ink)}
+  .kv{display:grid;grid-template-columns:112px 1fr;gap:5px 10px;font-size:13px}
+  .kv dt{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);padding-top:3px}
+  .kv dd{margin:0}
+  .blockers{background:rgba(140,59,42,.08);border-left:3px solid var(--rust);padding:10px 12px;font-size:13px}
+  .blockers ul{margin:6px 0 0;padding-left:17px} .blockers li{margin-bottom:3px}
+  .blockers.clear{background:rgba(59,107,71,.09);border-left-color:var(--go)}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  button.act{padding:9px 13px;background:var(--ink);color:var(--card);border:0;font-family:var(--disp);
+             font-weight:600;font-size:14px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
+  button.act:hover{background:var(--carbon)}
+  button.act.rej{background:none;color:var(--rust);border:1px solid var(--rust)}
+  button.act.rej:hover{background:var(--rust);color:var(--card)}
+  button.act:disabled{background:var(--line);color:var(--mute);cursor:not-allowed}
+  .ins-form{display:grid;gap:8px;font-size:13px}
+  .ins-form label{display:flex;gap:8px;align-items:center}
+  .ins-form input[type=checkbox]{accent-color:var(--carbon)}
+  .ins-form input[type=text],.ins-form input[type=date]{width:100%;padding:7px 9px;border:1px solid var(--line);background:#FBFAF6;font-family:var(--body)}
+  .log{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--mute);display:grid;gap:7px}
+  .log b{color:var(--ink);font-weight:500}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:var(--card);
+         padding:11px 18px;font-family:var(--mono);font-size:12px;display:none;z-index:30;max-width:90vw}
+  .toast.on{display:block} .toast.bad{background:var(--rust)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>Wrench<span>mark</span> pipeline</h1>
+      <div class="sub">Phase 1 · Minneapolis mechanic supply</div>
+    </div>
+    <div class="sub" id="stamp">Loading…</div>
+  </div>
+
+  <div class="gate" id="gate"><h2>Gate G1 — day 30</h2><div class="metrics" id="metrics"></div><div class="clusters" id="clusters"></div></div>
+
+  <div class="board" id="board"></div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="drawer" id="drawer"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  var KEY = new URLSearchParams(location.search).get('key') || '';
+  var COLS = [
+    ['APPLIED','Applied'],['SCREENED','Screened'],['INTERVIEWED','Interviewed'],
+    ['BACKGROUND','Background'],['REGISTERED','Registered'],['ACTIVE','Active']
+  ];
+  var NEXT = { APPLIED:'SCREENED', SCREENED:'INTERVIEWED', INTERVIEWED:'BACKGROUND',
+               BACKGROUND:'REGISTERED', REGISTERED:'ACTIVE' };
+  var LABEL = { SCREENED:'Mark screened', INTERVIEWED:'Mark interviewed',
+                BACKGROUND:'Send to background', REGISTERED:'Register', ACTIVE:'Activate' };
+  var $ = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return String(s==null?'':s).replace(/[<>&"]/g,function(c){
+    return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]; }); };
+
+  function api(path, opts){
+    opts = opts || {};
+    opts.headers = Object.assign({'Content-Type':'application/json','x-admin-key':KEY}, opts.headers||{});
+    return fetch(path, opts).then(function(r){
+      return r.json().then(function(d){ if(!r.ok) throw new Error(d.error||'Request failed'); return d; });
+    });
+  }
+  function toast(msg, bad){
+    var t = $('toast'); t.textContent = msg; t.className = 'toast on' + (bad?' bad':'');
+    clearTimeout(t._t); t._t = setTimeout(function(){ t.className='toast'; }, 4200);
+  }
+
+  var recruits = [];
+
+  function load(){
+    return Promise.all([api('api/recruits'), api('api/gate')])
+      .then(function(res){ recruits = res[0]; drawGate(res[1]); drawBoard(); })
+      .catch(function(e){ toast(e.message + ' — check the admin key in the URL.', true); });
+  }
+
+  function drawGate(g){
+    $('stamp').textContent = 'Updated ' + new Date().toLocaleString();
+    $('gate').className = 'gate' + (g.g1_met ? ' met' : '');
+    var m = [
+      { n: g.registered_or_active, d: 12, l: 'Registered' },
+      { n: g.insurance_ready,      d: 8,  l: 'Insurance ready' },
+      { n: g.clusters_covered,     d: 4,  l: 'ZIP clusters' },
+      { n: g.active,               d: null, l: 'Active now' },
+      { n: g.counts.APPLIED,       d: null, l: 'Awaiting screen' }
+    ];
+    $('metrics').innerHTML = m.map(function(x){
+      var cls = x.d == null ? '' : (x.n >= x.d ? ' ok' : ' short');
+      return '<div class="metric'+cls+'"><div class="n">'+x.n+(x.d?' <b>/ '+x.d+'</b>':'')+
+             '</div><div class="l">'+x.l+'</div></div>';
+    }).join('');
+    $('clusters').innerHTML = Object.keys(g.by_cluster).map(function(k){
+      var n = g.by_cluster[k];
+      return '<span class="cl'+(n===0?' zero':'')+'">'+esc(k)+' <b>'+n+'</b></span>';
+    }).join('');
+  }
+
+  function drawBoard(){
+    $('board').innerHTML = COLS.map(function(c){
+      var items = recruits.filter(function(r){ return r.status === c[0]; });
+      var body = items.length
+        ? '<div class="stack">' + items.map(card).join('') + '</div>'
+        : '<div class="empty">' + (c[0]==='APPLIED'
+            ? 'No new applications. Share the apply link with a source tag.'
+            : 'Nothing here yet.') + '</div>';
+      return '<div class="col'+(c[0]==='ACTIVE'?' gated':'')+'"><h3>'+c[1]+'<em>'+items.length+'</em></h3>'+body+'</div>';
+    }).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('.rec'), function(el){
+      el.addEventListener('click', function(){ openDrawer(el.dataset.id); });
+    });
+  }
+
+  function card(r){
+    var f = [];
+    f.push('<span class="f '+(r.ins_cgl?'on':'off')+'">CGL</span>');
+    f.push('<span class="f '+(r.ins_garagekeepers?'on':'off')+'">GK</span>');
+    f.push('<span class="f '+(r.ins_commercial_auto?'on':'off')+'">AUTO</span>');
+    if (r.bg_check_status === 'CLEAR') f.push('<span class="f on">BG CLEAR</span>');
+    if (r.days_to_expiry !== null && r.days_to_expiry <= 30)
+      f.push('<span class="f warn">EXPIRES '+r.days_to_expiry+'D</span>');
+    return '<div class="rec" data-id="'+r.id+'">'+
+      '<div class="ref">'+esc(r.ref)+' · '+esc(r.source)+'</div>'+
+      '<div class="nm">'+esc(r.full_name)+'</div>'+
+      '<div class="meta">'+esc(r.zip_cluster || 'OUTSIDE WEDGE ('+esc(r.home_zip)+')')+'<br>'+
+      esc(r.years_experience)+' yrs · '+esc(r.operator_type)+'</div>'+
+      '<div class="flags">'+f.join('')+'</div></div>';
+  }
+
+  function openDrawer(id){
+    api('api/recruits/'+id).then(function(r){
+      var next = NEXT[r.status];
+      var gated = next === 'ACTIVE' && !r.can_activate;
+      $('drawer').innerHTML =
+        '<div class="dhead"><button class="x" id="close">&times;</button>'+
+          '<div class="ref" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--mute)">'+esc(r.ref)+' · '+esc(r.status)+'</div>'+
+          '<div style="font-family:var(--disp);font-size:25px;font-weight:700;letter-spacing:.03em">'+esc(r.full_name)+'</div>'+
+        '</div>'+
+
+        '<div class="dsec"><h4>Contact</h4><dl class="kv">'+
+          '<dt>Phone</dt><dd><a href="tel:'+esc(r.phone)+'">'+esc(r.phone)+'</a></dd>'+
+          '<dt>Email</dt><dd>'+esc(r.email)+'</dd>'+
+          '<dt>ZIP</dt><dd>'+esc(r.home_zip)+' — '+esc(r.zip_cluster||'outside the wedge')+'</dd>'+
+          '<dt>Radius</dt><dd>'+esc(r.service_radius_mi)+' mi</dd>'+
+          '<dt>Source</dt><dd>'+esc(r.source)+(r.source_detail?' / '+esc(r.source_detail):'')+'</dd>'+
+        '</dl></div>'+
+
+        '<div class="dsec"><h4>Capability</h4><dl class="kv">'+
+          '<dt>Type</dt><dd>'+esc(r.operator_type)+'</dd>'+
+          '<dt>Experience</dt><dd>'+esc(r.years_experience)+' years'+(r.ase_certified?' · ASE certified':'')+'</dd>'+
+          '<dt>Vehicle</dt><dd>'+esc(r.vehicle||'—')+'</dd>'+
+          '<dt>Scan tool</dt><dd>'+(r.has_scan_tool?'Yes':'No')+'</dd>'+
+          '<dt>Services</dt><dd>'+esc(r.services.join(', ')||'—')+'</dd>'+
+          '<dt>Available</dt><dd>'+esc(r.availability.join(', ')||'—')+' · '+esc(r.hours_per_week)+' hrs/wk</dd>'+
+          '<dt>Notes</dt><dd>'+esc(r.tool_notes||'—')+'</dd>'+
+        '</dl></div>'+
+
+        '<div class="dsec"><h4>Insurance</h4>'+
+          '<div class="blockers'+(r.can_activate?' clear':'')+'">'+
+            (r.can_activate
+              ? 'Cleared to activate. Coverage verified'+(r.ins_expires_on?', expires '+esc(r.ins_expires_on):'')+'.'
+              : '<b>Not cleared to activate.</b><ul><li>'+r.blockers.map(esc).join('</li><li>')+'</li></ul>')+
+          '</div>'+
+          '<div class="ins-form" style="margin-top:12px">'+
+            chk('i_cgl','Commercial general liability',r.ins_cgl)+
+            chk('i_gk','Garagekeepers (customer vehicle)',r.ins_garagekeepers)+
+            chk('i_auto','Commercial auto on the van',r.ins_commercial_auto)+
+            chk('i_ai','Wrenchmark named additional insured',r.ins_additional_insured)+
+            chk('i_ver','COI verified with carrier or broker',!!r.ins_verified_at)+
+            '<input id="i_carrier" type="text" placeholder="Carrier" value="'+esc(r.ins_carrier||'')+'">'+
+            '<input id="i_policy" type="text" placeholder="Policy number" value="'+esc(r.ins_policy_ref||'')+'">'+
+            '<input id="i_exp" type="date" value="'+esc(r.ins_expires_on||'')+'">'+
+            '<button class="act" id="save-ins">Save insurance</button>'+
+          '</div>'+
+        '</div>'+
+
+        '<div class="dsec"><h4>Background check</h4><dl class="kv">'+
+          '<dt>Status</dt><dd>'+esc(r.bg_check_status)+'</dd></dl>'+
+          '<div class="acts">'+
+            '<button class="act" data-bg="ORDERED">Ordered</button>'+
+            '<button class="act" data-bg="CLEAR">Clear</button>'+
+            '<button class="act rej" data-bg="FLAGGED">Flagged</button>'+
+          '</div></div>'+
+
+        '<div class="dsec"><h4>Move</h4><div class="acts">'+
+          (next ? '<button class="act" id="advance"'+(gated?' disabled':'')+'>'+LABEL[next]+'</button>' : '')+
+          '<button class="act rej" id="reject">Reject</button>'+
+          '</div>'+
+          (gated ? '<p style="font-size:12.5px;color:var(--rust);margin:10px 0 0">Activation is blocked until every insurance condition above is satisfied. This cannot be overridden here.</p>' : '')+
+        '</div>'+
+
+        '<div class="dsec"><h4>Log</h4><div class="log">'+
+          r.events.map(function(e){
+            return '<div><b>'+new Date(e.at).toLocaleString()+'</b> · '+esc(e.actor)+' · '+esc(e.kind)+'<br>'+esc(e.detail||'')+'</div>';
+          }).join('')+
+        '</div></div>';
+
+      $('drawer').className = 'drawer on';
+      $('scrim').className = 'scrim on';
+
+      $('close').onclick = close;
+      $('save-ins').onclick = function(){
+        api('api/recruits/'+id+'/insurance', { method:'POST', body: JSON.stringify({
+          ins_cgl:$('i_cgl').checked, ins_garagekeepers:$('i_gk').checked,
+          ins_commercial_auto:$('i_auto').checked, ins_additional_insured:$('i_ai').checked,
+          verified:$('i_ver').checked, ins_carrier:$('i_carrier').value,
+          ins_policy_ref:$('i_policy').value, ins_expires_on:$('i_exp').value||null
+        })}).then(function(){ toast('Insurance saved.'); return load(); })
+          .then(function(){ openDrawer(id); })
+          .catch(function(e){ toast(e.message, true); });
+      };
+      Array.prototype.forEach.call($('drawer').querySelectorAll('[data-bg]'), function(b){
+        b.onclick = function(){
+          api('api/recruits/'+id+'/bgcheck', { method:'POST', body: JSON.stringify({ status: b.dataset.bg })})
+            .then(function(){ toast('Background check: '+b.dataset.bg); return load(); })
+            .then(function(){ openDrawer(id); })
+            .catch(function(e){ toast(e.message, true); });
+        };
+      });
+      if ($('advance')) $('advance').onclick = function(){ move(id, next); };
+      $('reject').onclick = function(){
+        var why = prompt('Reason for rejecting ' + r.full_name + '?');
+        if (why !== null) move(id, 'REJECTED', why);
+      };
+    }).catch(function(e){ toast(e.message, true); });
+  }
+
+  function chk(id,label,on){
+    return '<label><input type="checkbox" id="'+id+'"'+(on?' checked':'')+'><span>'+label+'</span></label>';
+  }
+
+  function move(id, status, detail){
+    api('api/recruits/'+id+'/status', { method:'POST', body: JSON.stringify({ status: status, detail: detail })})
+      .then(function(){ toast('Moved to ' + status + '.'); close(); return load(); })
+      .catch(function(e){ toast(e.message, true); });
+  }
+
+  function close(){ $('drawer').className = 'drawer'; $('scrim').className = 'scrim'; }
+  $('scrim').addEventListener('click', close);
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') close(); });
+
+  load();
+})();
+</script>
+</body>
+</html>

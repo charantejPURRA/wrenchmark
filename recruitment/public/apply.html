@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16191C">
+<title>Wrenchmark — Mechanic Application</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#16191C; --ground:#C7CCC6; --card:#F3F1EB; --line:#B9B4A5;
+    --amber:#E8A33D; --carbon:#2F4B6B; --rust:#8C3B2A; --mute:#6B6E68; --go:#3B6B47;
+    --disp:'Barlow Condensed',sans-serif; --body:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);
+       font-size:15px;line-height:1.55;padding:22px 14px 56px;
+       background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.025) 0 1px,transparent 1px 4px);
+       -webkit-text-size-adjust:100%;}
+  :focus-visible{outline:2px solid var(--carbon);outline-offset:2px}
+  a{color:var(--carbon)}
+  .sheet{max-width:620px;margin:0 auto;background:var(--card);border:1px solid var(--line);
+         box-shadow:0 1px 0 var(--line),0 12px 32px rgba(0,0,0,.14)}
+
+  header{padding:18px 22px 15px;border-bottom:2px solid var(--ink);position:relative}
+  .marque{font-family:var(--disp);font-weight:700;font-size:31px;letter-spacing:.06em;
+          text-transform:uppercase;line-height:1}
+  .marque span{color:var(--amber)}
+  .sub{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+       color:var(--mute);margin-top:5px}
+  .formno{position:absolute;top:18px;right:22px;font-family:var(--mono);font-size:10px;
+          letter-spacing:.1em;color:var(--mute);text-align:right;line-height:1.5}
+
+  .prog{padding:13px 22px;border-bottom:1px dashed var(--line)}
+  .prog .row{display:flex;justify-content:space-between;align-items:baseline;
+             font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+             text-transform:uppercase;color:var(--mute);margin-bottom:8px}
+  .prog .row b{color:var(--ink);font-weight:500}
+  .bars{display:flex;gap:4px}
+  .bars i{flex:1;height:5px;background:#DCD9CE;border:1px solid var(--line)}
+  .bars i.done{background:var(--carbon);border-color:var(--carbon)}
+  .bars i.now{background:var(--amber);border-color:var(--amber)}
+
+  .lede{padding:16px 22px;border-bottom:1px dashed var(--line);font-size:14px}
+  .costnote{margin-top:10px;padding:10px 12px;border-left:3px solid var(--carbon);
+            background:rgba(47,75,107,.06);font-size:13.5px}
+
+  .step{display:none;padding:20px 22px}
+  .step.on{display:block}
+  .step h2{font-family:var(--disp);font-weight:600;font-size:21px;letter-spacing:.07em;
+           text-transform:uppercase;margin:0 0 4px}
+  .step .hint{font-size:13.5px;color:var(--mute);margin:0 0 16px}
+
+  label.f{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.11em;
+          text-transform:uppercase;color:var(--mute);margin-bottom:5px}
+  input[type=text],input[type=tel],input[type=email],input[type=number],input[type=date],select,textarea{
+    width:100%;padding:11px 10px;font-family:var(--body);font-size:16px;color:var(--ink);
+    background:#FBFAF6;border:1px solid var(--line);border-radius:0}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--carbon);outline-offset:1px;border-color:var(--carbon)}
+  textarea{min-height:74px;resize:vertical;font-size:15px}
+  .row2{display:grid;gap:13px;margin-bottom:13px}
+  @media(min-width:500px){.row2.two{grid-template-columns:1fr 1fr}}
+  .row2:last-child{margin-bottom:0}
+
+  .checks{display:grid;gap:8px}
+  @media(min-width:500px){.checks{grid-template-columns:1fr 1fr}}
+  .chk{display:flex;gap:9px;align-items:flex-start;padding:11px;background:#FBFAF6;
+       border:1px solid var(--line);cursor:pointer;font-size:14.5px;min-height:44px}
+  .chk:has(input:checked){border-color:var(--carbon);background:rgba(47,75,107,.07)}
+  .chk input{margin:3px 0 0;accent-color:var(--carbon);flex:none;width:17px;height:17px}
+  .chk small{display:block;color:var(--mute);font-size:12px;line-height:1.4}
+
+  .ins-note{font-size:13.5px;color:var(--mute);margin-bottom:14px}
+  .ins-note b{color:var(--ink);font-weight:600}
+
+  dl.rev{display:grid;grid-template-columns:118px 1fr;gap:6px 12px;margin:0;font-size:14px}
+  dl.rev dt{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;
+            color:var(--mute);padding-top:3px}
+  dl.rev dd{margin:0}
+  dl.rev dd.empty{color:var(--mute)}
+
+  nav.btns{padding:16px 22px 22px;border-top:1px dashed var(--line);display:flex;gap:10px}
+  button{font-family:var(--disp);font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+         cursor:pointer;border:0;min-height:50px}
+  .next{flex:1;padding:14px;background:var(--ink);color:var(--card);font-size:19px}
+  .next:hover{background:var(--carbon)}
+  .next:disabled{background:var(--line);color:var(--mute);cursor:default}
+  .backbtn{padding:14px 18px;background:none;color:var(--mute);border:1px solid var(--line);font-size:16px}
+  .backbtn:hover{border-color:var(--ink);color:var(--ink)}
+  .fine{font-family:var(--mono);font-size:10.5px;color:var(--mute);padding:0 22px 20px;line-height:1.6}
+
+  .msg{display:none;margin:0 22px 14px;padding:11px 13px;font-size:14px;
+       border-left:3px solid var(--rust);background:rgba(140,59,42,.08)}
+  .msg.on{display:block}
+
+  .done{display:none}
+  .done.on{display:block}
+  .stampwrap{padding:30px 22px 8px;text-align:center}
+  .stamp{display:inline-block;transform:rotate(-6deg) scale(.7);opacity:0;
+         border:3px solid var(--carbon);color:var(--carbon);padding:9px 19px;
+         font-family:var(--disp);font-weight:700;font-size:28px;letter-spacing:.14em;
+         text-transform:uppercase;animation:stamp .35s cubic-bezier(.2,1.4,.4,1) .1s forwards}
+  @keyframes stamp{to{transform:rotate(-6deg) scale(1);opacity:.9}}
+  @media(prefers-reduced-motion:reduce){.stamp{animation:none;opacity:.9;transform:rotate(-6deg)}}
+  .ref{font-family:var(--mono);font-size:24px;letter-spacing:.1em;margin:20px 0 4px;text-align:center}
+  .reflab{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+          color:var(--mute);text-align:center}
+  .donetxt{max-width:400px;margin:16px auto 0;font-size:14px;color:var(--mute);text-align:center;padding:0 22px}
+
+  .road{padding:22px;border-top:1px dashed var(--line);margin-top:22px}
+  .road h3{font-family:var(--disp);font-size:17px;letter-spacing:.09em;text-transform:uppercase;
+           margin:0 0 14px;padding-bottom:6px;border-bottom:1px solid var(--ink)}
+  .stage{display:flex;gap:13px;padding:11px 0;border-bottom:1px dashed var(--line)}
+  .stage:last-child{border-bottom:0}
+  .stage .dot{flex:none;width:22px;height:22px;border:2px solid var(--line);border-radius:50%;
+              display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+              font-size:10px;color:var(--mute);margin-top:1px}
+  .stage.now .dot{border-color:var(--amber);background:var(--amber);color:var(--ink);font-weight:600}
+  .stage.past .dot{border-color:var(--go);background:var(--go);color:var(--card)}
+  .stage .t{font-family:var(--disp);font-size:17px;font-weight:600;letter-spacing:.03em;line-height:1.25}
+  .stage:not(.now):not(.past) .t{color:var(--mute)}
+  .stage .d{font-size:13px;color:var(--mute);margin-top:2px}
+  .stage.now .d{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <div class="marque">Wrench<span>mark</span></div>
+    <div class="sub">Mechanic enrollment · Minneapolis</div>
+    <div class="formno">FORM WM-1<br>REV. B</div>
+  </header>
+
+  <div id="wizard">
+    <div class="prog">
+      <div class="row"><span>Step <b id="pnum">1</b> of 5</span><span id="plabel">Who you are</span></div>
+      <div class="bars" id="pbars"></div>
+    </div>
+
+    <div class="lede">
+      <b>We send paying work to mobile mechanics in Minneapolis.</b> You keep your own hours,
+      your own van, and your own customers. We handle the customer, the quote, and the payment.
+      <div class="costnote">
+        Applying is free and there is nothing to buy. You will not be dispatched a job until
+        you decide to go active, so no one asks you for an insurance certificate before there
+        is work on the table.
+      </div>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <section class="step on" data-step="1">
+      <h2>Who you are</h2>
+      <p class="hint">John calls every applicant. Make sure the number is one you answer.</p>
+      <div class="row2"><div>
+        <label class="f" for="full_name">Full name</label>
+        <input id="full_name" type="text" autocomplete="name">
+      </div></div>
+      <div class="row2 two">
+        <div><label class="f" for="phone">Mobile number</label><input id="phone" type="tel" autocomplete="tel"></div>
+        <div><label class="f" for="email">Email</label><input id="email" type="email" autocomplete="email"></div>
+      </div>
+      <div class="row2 two">
+        <div><label class="f" for="home_zip">Home ZIP</label>
+          <input id="home_zip" type="text" inputmode="numeric" maxlength="5"></div>
+        <div><label class="f" for="service_radius_mi">How far will you drive? (miles)</label>
+          <input id="service_radius_mi" type="number" min="1" max="60" value="15"></div>
+      </div>
+    </section>
+
+    <section class="step" data-step="2">
+      <h2>Your work</h2>
+      <p class="hint">Where you're at today. None of this rules you out.</p>
+      <div class="row2 two">
+        <div><label class="f" for="operator_type">Which fits you today?</label>
+          <select id="operator_type">
+            <option value="solo_mobile">I already run mobile repair</option>
+            <option value="shop_tech">I work at a shop, want side work</option>
+            <option value="grad">Recent tech school graduate</option>
+            <option value="other">Something else</option>
+          </select></div>
+        <div><label class="f" for="years_experience">Years turning wrenches</label>
+          <input id="years_experience" type="number" min="0" max="50" value="0"></div>
+      </div>
+      <div class="row2 two">
+        <div><label class="f" for="vehicle">Your work vehicle</label>
+          <input id="vehicle" type="text" placeholder="2014 Transit Connect"></div>
+        <div><label class="f" for="hours_per_week">Hours a week you can take</label>
+          <input id="hours_per_week" type="number" min="0" max="80" value="10"></div>
+      </div>
+    </section>
+
+    <section class="step" data-step="3">
+      <h2>What you can do</h2>
+      <p class="hint">Pick everything you're comfortable doing in a driveway. This decides which jobs reach you.</p>
+      <div class="row2"><div>
+        <div class="checks" id="services">
+          <label class="chk"><input type="checkbox" value="Battery / charging"><span>Battery &amp; charging</span></label>
+          <label class="chk"><input type="checkbox" value="Brakes"><span>Brakes</span></label>
+          <label class="chk"><input type="checkbox" value="Starter / alternator"><span>Starter &amp; alternator</span></label>
+          <label class="chk"><input type="checkbox" value="Diagnostics"><span>Check-engine diagnostics</span></label>
+          <label class="chk"><input type="checkbox" value="Oil / fluids"><span>Oil &amp; fluids</span></label>
+          <label class="chk"><input type="checkbox" value="Suspension"><span>Suspension</span></label>
+          <label class="chk"><input type="checkbox" value="Cooling"><span>Cooling system</span></label>
+          <label class="chk"><input type="checkbox" value="Pre-purchase inspection"><span>Pre-purchase inspection</span></label>
+        </div>
+      </div></div>
+      <div class="row2 two" style="margin-top:13px">
+        <div><label class="f">Certification</label>
+          <label class="chk"><input type="checkbox" id="ase_certified"><span>I hold ASE certification</span></label></div>
+        <div><label class="f">Equipment</label>
+          <label class="chk"><input type="checkbox" id="has_scan_tool"><span>I own a bidirectional scan tool</span></label></div>
+      </div>
+      <div class="row2"><div>
+        <label class="f" for="tool_notes">Anything else worth knowing</label>
+        <textarea id="tool_notes" placeholder="Specialties, brands you know best, equipment you carry"></textarea>
+      </div></div>
+    </section>
+
+    <section class="step" data-step="4">
+      <h2>When you work</h2>
+      <p class="hint">Rough is fine. You set exact hours later, and you can change them any time.</p>
+      <div class="checks" id="availability">
+        <label class="chk"><input type="checkbox" value="Weekday mornings"><span>Weekday mornings</span></label>
+        <label class="chk"><input type="checkbox" value="Weekday afternoons"><span>Weekday afternoons</span></label>
+        <label class="chk"><input type="checkbox" value="Weekday evenings"><span>Weekday evenings</span></label>
+        <label class="chk"><input type="checkbox" value="Weekends"><span>Weekends</span></label>
+        <label class="chk"><input type="checkbox" value="Emergency callout"><span>Emergency callout</span></label>
+      </div>
+    </section>
+
+    <section class="step" data-step="5">
+      <h2>Insurance</h2>
+      <p class="ins-note">
+        <b>Answer honestly — this is not a filter on your application.</b> Nobody works a
+        Wrenchmark job without coverage, but you only need it the day you take your first
+        dispatch. If you already carry it, you can start sooner. If you don't, tell us and
+        we'll walk you through it when there's work waiting.
+      </p>
+      <div class="checks">
+        <label class="chk"><input type="checkbox" id="ins_cgl">
+          <span>General liability<small>Covers injury and property damage on the job</small></span></label>
+        <label class="chk"><input type="checkbox" id="ins_garagekeepers">
+          <span>Garagekeepers<small>Covers the customer's vehicle while you're working on it</small></span></label>
+        <label class="chk"><input type="checkbox" id="ins_commercial_auto">
+          <span>Commercial auto<small>On your van — a personal policy won't cover business use</small></span></label>
+      </div>
+      <div class="row2 two" style="margin-top:14px">
+        <div><label class="f" for="ins_carrier">Carrier, if you have one</label><input id="ins_carrier" type="text"></div>
+        <div><label class="f" for="ins_expires_on">Policy expires</label><input id="ins_expires_on" type="date"></div>
+      </div>
+
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--ink)">
+        <h2 style="font-size:18px">Check it over</h2>
+        <dl class="rev" id="review"></dl>
+      </div>
+    </section>
+
+    <nav class="btns">
+      <button class="backbtn" id="btn-back" style="display:none">Back</button>
+      <button class="next" id="btn-next">Continue</button>
+    </nav>
+    <p class="fine">
+      Nothing here is a job offer and nothing here costs you money.
+      Already applied? <a href="status">Check your status</a>.
+    </p>
+  </div>
+
+  <div class="done" id="done">
+    <div class="stampwrap"><div class="stamp">Received</div></div>
+    <div class="ref" id="ref"></div>
+    <div class="reflab">Your application number</div>
+    <p class="donetxt" id="donetxt"></p>
+    <div class="road">
+      <h3>What happens next</h3>
+      <div id="stages"></div>
+    </div>
+    <p class="fine" style="padding-top:4px">
+      Write that number down. You can check where you stand any time at
+      <a href="status">/mechanic/status</a>.
+    </p>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var params = new URLSearchParams(location.search);
+var $ = function(id){ return document.getElementById(id); };
+var TOTAL = 5, step = 1;
+var LABELS = ['Who you are','Your work','What you can do','When you work','Insurance'];
+
+var STAGES = [
+  ['Application received', 'Done. It is on John\u2019s board now.'],
+  ['Phone screen',         'John calls you within two business days. Ten minutes, no test.'],
+  ['Interview',            'A longer conversation about the work you do and the jobs you want.'],
+  ['Background check',     'Standard check. We tell you before it runs and we cover the cost.'],
+  ['Enrollment',           'Portal access, set your area and hours, send your insurance certificate.'],
+  ['Active',               'Jobs start reaching your phone. You accept the ones you want.']
+];
+
+function checked(box){
+  return Array.prototype.slice.call(box.querySelectorAll('input:checked')).map(function(i){ return i.value; });
+}
+function val(id){ return ($(id).value || '').trim(); }
+
+function paint(){
+  $('pnum').textContent = step;
+  $('plabel').textContent = LABELS[step-1];
+  var b = '';
+  for (var i=1; i<=TOTAL; i++) b += '<i class="'+(i<step?'done':i===step?'now':'')+'"></i>';
+  $('pbars').innerHTML = b;
+  Array.prototype.forEach.call(document.querySelectorAll('.step'), function(el){
+    el.className = 'step' + (Number(el.dataset.step) === step ? ' on' : '');
+  });
+  $('btn-back').style.display = step === 1 ? 'none' : '';
+  $('btn-next').textContent = step === TOTAL ? 'Send application' : 'Continue';
+  if (step === TOTAL) review();
+  window.scrollTo(0,0);
+}
+
+function validate(){
+  if (step !== 1) return null;
+  var missing = [];
+  if (!val('full_name')) missing.push('name');
+  if (!val('phone'))     missing.push('phone number');
+  if (!val('email'))     missing.push('email');
+  var zip = val('home_zip');
+  if (!zip) missing.push('ZIP');
+  else if (!/^\d{5}$/.test(zip)) return 'That ZIP does not look right \u2014 five digits, like 55408.';
+  if (missing.length) return 'We need your ' + missing.join(', ') + ' before continuing.';
+  return null;
+}
+
+function review(){
+  function row(k, v, empty){
+    return '<dt>'+k+'</dt><dd'+(v?'':' class="empty"')+'>'+(v || empty || 'Not given')+'</dd>';
+  }
+  var svc = checked($('services')), av = checked($('availability'));
+  var ins = [];
+  if ($('ins_cgl').checked) ins.push('General liability');
+  if ($('ins_garagekeepers').checked) ins.push('Garagekeepers');
+  if ($('ins_commercial_auto').checked) ins.push('Commercial auto');
+  $('review').innerHTML =
+    row('Name', val('full_name')) +
+    row('Phone', val('phone')) +
+    row('ZIP', val('home_zip') + (val('service_radius_mi') ? ' \u00b7 ' + val('service_radius_mi') + ' mi' : '')) +
+    row('Experience', (val('years_experience') || '0') + ' years') +
+    row('Vehicle', val('vehicle')) +
+    row('Can do', svc.join(', '), 'None selected') +
+    row('Available', av.join(', '), 'None selected') +
+    row('Insurance', ins.join(', '), 'None yet \u2014 that is fine');
+}
+
+function payload(){
+  return {
+    full_name: val('full_name'), phone: val('phone'), email: val('email'),
+    home_zip: val('home_zip'), service_radius_mi: val('service_radius_mi'),
+    operator_type: $('operator_type').value, years_experience: val('years_experience'),
+    vehicle: val('vehicle'), hours_per_week: val('hours_per_week'),
+    services: checked($('services')), availability: checked($('availability')),
+    ase_certified: $('ase_certified').checked, has_scan_tool: $('has_scan_tool').checked,
+    tool_notes: val('tool_notes'),
+    ins_cgl: $('ins_cgl').checked, ins_garagekeepers: $('ins_garagekeepers').checked,
+    ins_commercial_auto: $('ins_commercial_auto').checked,
+    ins_carrier: val('ins_carrier'), ins_expires_on: $('ins_expires_on').value || null,
+    source: params.get('src') || 'direct', source_detail: params.get('ref') || null
+  };
+}
+
+function submit(){
+  var btn = $('btn-next');
+  btn.disabled = true; btn.textContent = 'Sending\u2026';
+  fetch('api/apply', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload())
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (!d.ok) throw new Error(d.error || 'Something went wrong.');
+    $('wizard').style.display = 'none';
+    $('done').className = 'done on';
+    $('ref').textContent = d.ref;
+    $('donetxt').textContent = d.in_service_area
+      ? 'You are inside our first Minneapolis service area (' + d.cluster + ').'
+      : 'You are outside the four Minneapolis areas we are opening first, so you are on the waiting list. We will call when we reach your neighborhood.';
+    $('stages').innerHTML = STAGES.map(function(s, i){
+      var cls = i === 0 ? 'stage past' : i === 1 ? 'stage now' : 'stage';
+      var mark = i === 0 ? '\u2713' : String(i + 1);
+      return '<div class="'+cls+'"><div class="dot">'+mark+'</div>'+
+             '<div><div class="t">'+s[0]+'</div><div class="d">'+s[1]+'</div></div></div>';
+    }).join('');
+    window.scrollTo(0,0);
+  })
+  .catch(function(e){
+    $('msg').textContent = e.message + ' Try again, or text John directly.';
+    $('msg').className = 'msg on';
+    btn.disabled = false; btn.textContent = 'Send application';
+  });
+}
+
+$('btn-next').addEventListener('click', function(){
+  var err = validate();
+  if (err) { $('msg').textContent = err; $('msg').className = 'msg on'; return; }
+  $('msg').className = 'msg';
+  if (step === TOTAL) return submit();
+  step++; paint();
+});
+$('btn-back').addEventListener('click', function(){
+  $('msg').className = 'msg';
+  if (step > 1) { step--; paint(); }
+});
+
+paint();
+})();
+</script>
+</body>
+</html>
