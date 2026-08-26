@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16191C">
+<title>Wrenchmark — Mechanic</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="__WM_BASE__/portal.css">
+</head>
+<body>
+
+<header class="topbar" id="topbar" style="display:none">
+  <div class="brand">Wrench<span>mark</span></div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <div class="whoami" id="whoami"></div>
+    <button class="link" id="signout">Sign out</button>
+  </div>
+</header>
+
+<!-- ══ PROTOTYPE ONLY ══════════════════════════════════════════════════
+     Jump between account states to see every screen without waiting for
+     John to approve anyone. Delete this block and the .devhint /
+     .personaswitch CSS to ship.
+     ═════════════════════════════════════════════════════════════════ -->
+<div style="background:#2F4B6B;color:#F3F1EB;padding:7px 14px;display:flex;align-items:center;
+            gap:9px;flex-wrap:wrap;font-family:'IBM Plex Mono',monospace;font-size:9.5px;
+            letter-spacing:.12em;text-transform:uppercase">
+  <b style="background:#E8A33D;color:#16191C;padding:1px 6px;font-weight:600">Demo</b>
+  <span>View as</span>
+  <button data-acct="NEW"        aria-pressed="false" class="acct">New</button>
+  <button data-acct="PENDING"    aria-pressed="false" class="acct">Pending</button>
+  <button data-acct="REGISTERED" aria-pressed="false" class="acct">Registered</button>
+  <button data-acct="ACTIVE"     aria-pressed="false" class="acct">Active</button>
+</div>
+<style>
+  .acct{background:none;border:1px solid rgba(243,241,235,.45);color:#F3F1EB;
+        font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.1em;
+        text-transform:uppercase;padding:4px 9px;cursor:pointer;min-height:30px}
+  .acct[aria-pressed=true]{background:#F3F1EB;color:#2F4B6B;border-color:#F3F1EB}
+</style>
+
+<main class="shell" id="view"><div class="loading">Loading…</div></main>
+
+<nav class="bottom" id="nav" style="display:none">
+  <a href="__WM_BASE__/dashboard"><span class="ic">WM</span>Home</a>
+  <a href="__WM_BASE__/jobs"><span class="ic">JB</span>Jobs</a>
+  <a href="__WM_BASE__/earnings"><span class="ic">$</span>Earnings</a>
+  <a href="__WM_BASE__/documents"><span class="ic">DOC</span>Docs</a>
+  <a href="__WM_BASE__/profile"><span class="ic">ME</span>Profile</a>
+  <a href="__WM_BASE__/settings"><span class="ic">SET</span>More</a>
+</nav>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet"></div>
+<div class="toast" id="toast"></div>
+
+<script>window.WM_BASE = '__WM_BASE__';</script>
+<script src="__WM_BASE__/data.js"></script>
+<script src="__WM_BASE__/services.js"></script>
+<script src="__WM_BASE__/app.js"></script>
+</body>
+</html>

@@ -2,6 +2,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const handoff = require('./handoff');
 
 /**
  * Mount TWICE, with different scopes, so a mechanic can never reach the
@@ -33,6 +34,8 @@ module.exports = function recruitmentRouter(opts = {}) {
 
   const store = opts.store || require('./db').open(opts.dbFile);
   const adminKey = opts.adminKey || 'change-me';
+  const mainDb = opts.mainDb || null;      // the app's own db, for the contractor handoff
+  const geocode = opts.geocode || null;
   const r = express.Router();
 
   r.use(express.json());
@@ -53,13 +56,19 @@ module.exports = function recruitmentRouter(opts = {}) {
   // Mount-agnostic: the shell learns its base path from req.baseUrl, so this
   // works at /mechanic, /recruit, or anywhere else you mount the router.
   if (wantsMechanic) {
-  const DEMO = path.join(__dirname, 'public', 'demo');
-  ['demo.css', 'demo-data.js', 'services.js'].forEach((f) =>
-    r.get('/' + f, (_q, res) => res.sendFile(path.join(DEMO, f))));
+  const PORTAL = path.join(__dirname, 'public', 'portal');
+  ['portal.css', 'data.js', 'services.js', 'app.js'].forEach((f) =>
+    r.get('/' + f, (_q, res) => res.sendFile(path.join(PORTAL, f))));
 
+  // Every portal screen renders the same shell; it routes client-side.
+  // __WM_BASE__ is replaced with the mount path, so this works wherever
+  // you mount the router.
+  const SCREENS = /^\/(welcome|phone|verify|register|pending|dashboard|jobs|earnings|documents|profile|reviews|settings|job\/[\w-]+)$/;
   let shellCache = null;
-  r.get(/^\/(dashboard|jobs|earnings|documents|job\/[\w-]+|profile)$/, (req, res) => {
-    if (!shellCache) shellCache = fs.readFileSync(path.join(DEMO, 'shell.html'), 'utf8');
+  r.get(SCREENS, (req, res) => {
+    if (!shellCache || process.env.NODE_ENV !== 'production') {
+      shellCache = fs.readFileSync(path.join(PORTAL, 'index.html'), 'utf8');
+    }
     res.type('html').send(shellCache.replace(/__WM_BASE__/g, req.baseUrl));
   });
   r.get('/', (req, res) => res.redirect(req.baseUrl + '/dashboard'));
@@ -186,6 +195,26 @@ module.exports = function recruitmentRouter(opts = {}) {
 
   r.get('/api/expiring', admin, wrap((req, res) =>
     res.json(store.expiringSoon(Number(req.query.days) || 30))));
+
+  // ---- recruit -> contractor handoff.
+  // Flipping someone to ACTIVE on the board does not, by itself, make them
+  // dispatchable — the matching engine reads `contractors`, not `recruits`.
+  // This creates that row and returns the magic link John texts them.
+  r.post('/api/recruits/:id/promote', admin, wrap((req, res) => {
+    if (!mainDb) throw new Error('Handoff is not wired up: pass mainDb when mounting the admin scope.');
+    const rec = store.get(req.params.id);
+    if (!rec) return res.status(404).json({ error: 'Recruit not found' });
+    const out = handoff.promoteToContractor(mainDb, rec, { geocode });
+    store.addNote(rec.id, out.created
+      ? `Promoted to contractor #${out.contractor_id}. Access link issued.`
+      : `Linked to existing contractor #${out.contractor_id}.`, 'system');
+    res.json(out);
+  }));
+
+  r.post('/api/contractors/:cid/rotate-token', admin, wrap((req, res) => {
+    if (!mainDb) throw new Error('Handoff is not wired up: pass mainDb when mounting the admin scope.');
+    res.json(handoff.rotateToken(mainDb, Number(req.params.cid)));
+  }));
   } // end admin scope
 
   r.scope = scope;

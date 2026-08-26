@@ -255,6 +255,16 @@
             '<button class="act rej" data-bg="FLAGGED">Flagged</button>'+
           '</div></div>'+
 
+        (r.status === 'ACTIVE'
+          ? '<div class="dsec"><h4>Dispatch access</h4>'+
+            '<p style="font-size:13px;margin:0 0 10px;color:var(--mute)">'+
+            'ACTIVE on this board does not make someone dispatchable on its own — '+
+            'the matching engine reads the contractors table. Create that record here, '+
+            'then text them the link.</p>'+
+            '<div class="acts"><button class="act" id="promote">Create dispatch access</button></div>'+
+            '<div id="promoted"></div></div>'
+          : '')+
+
         '<div class="dsec"><h4>Move</h4><div class="acts">'+
           (next ? '<button class="act" id="advance"'+(gated?' disabled':'')+'>'+LABEL[next]+'</button>' : '')+
           '<button class="act rej" id="reject">Reject</button>'+
@@ -290,6 +300,32 @@
             .catch(function(e){ toast(e.message, true); });
         };
       });
+      if ($('promote')) $('promote').onclick = function(){
+        var b = $('promote'); b.disabled = true; b.textContent = 'Creating\u2026';
+        api('api/recruits/'+id+'/promote', { method:'POST', body:'{}' })
+          .then(function(d){
+            var link = location.origin + d.path;
+            $('promoted').innerHTML =
+              '<div class="note" style="margin-top:10px">'+
+                (d.created ? 'Contractor #' : 'Already existed as contractor #') + d.contractor_id + '.<br>'+
+                '<b>Text them this link:</b><br>'+
+                '<span style="word-break:break-all">'+esc(link)+'</span><br>'+
+                '<button class="upload" id="copylink" style="margin-top:8px">Copy link</button>'+
+              '</div>'+
+              (d.warnings.length
+                ? '<div class="blockers" style="margin-top:9px"><b>Before they can be offered a job:</b>'+
+                  '<ul><li>'+d.warnings.map(esc).join('</li><li>')+'</li></ul></div>'
+                : '');
+            var cp = $('copylink');
+            if (cp) cp.onclick = function(){
+              navigator.clipboard.writeText(link).then(function(){ toast('Link copied.'); },
+                                                       function(){ toast('Copy failed \u2014 select it manually.', true); });
+            };
+            b.style.display = 'none';
+            return load();
+          })
+          .catch(function(e){ toast(e.message, true); b.disabled = false; b.textContent = 'Create dispatch access'; });
+      };
       if ($('advance')) $('advance').onclick = function(){ move(id, next); };
       $('reject').onclick = function(){
         var why = prompt('Reason for rejecting ' + r.full_name + '?');
