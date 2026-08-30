@@ -30,6 +30,9 @@ const I = {
   pin: '<path d="M12 21s7-6 7-11a7 7 0 1 0-14 0c0 5 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.2 1.9"/>',
   wrench: '<path d="M15.5 3.5a5.5 5.5 0 0 0-6.9 6.9L3 16v5h5l5.6-5.6a5.5 5.5 0 0 0 6.9-6.9l-3.3 3.3-2.8-.7-.7-2.8 3.3-3.3Z"/>',
+  play: '<path d="M8 5.5v13l11-6.5-11-6.5Z" fill="currentColor" stroke="none"/>',
+  sound_off: '<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4v-5Z"/><path d="m16.5 10 4 4M20.5 10l-4 4"/>',
+  sound_on: '<path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4v-5Z"/><path d="M16 9.2a4 4 0 0 1 0 5.6M18.6 6.8a7.5 7.5 0 0 1 0 10.4"/>',
 };
 const ico = (n, sz = 20) =>
   `<svg viewBox="0 0 24 24" width="${sz}" height="${sz}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] || I.info}</svg>`;
@@ -46,7 +49,8 @@ function page(title, nav, body, extraJs = '') {
     ${nav === 'book' ? '' : `<a href="/tech">Mechanic</a>
     <a href="/admin/dispatch">Dispatch</a>
     <a href="/admin">Operations</a>
-    <a href="/admin/team">Mechanics</a>`}
+    <a href="/admin/team">Mechanics</a>
+    <a href="/admin/funnel">Funnel</a>`}
   </div>
 </div></div>
 ${body}
@@ -61,7 +65,8 @@ const notice = (kind, iconName, title, text) =>
    CUSTOMER — 4-step configurator
    ======================================================================= */
 
-function intake() {
+function intake(hero) {
+  const H = hero || { mode: 'off' };
   const yearOpts = YEARS.map((y) => `<option value="${y}">${y}</option>`).join('');
   const slots = [
     ['Today', '12:00 – 4:00 PM'], ['Today', '4:00 – 8:00 PM'],
@@ -69,6 +74,36 @@ function intake() {
   ].map(([d, t], i) => `<label class="slot" data-slot>
       <input type="radio" name="requested_window" value="${esc(d + ', ' + t)}" ${i === 0 ? 'checked' : ''}>
       <b>${esc(d)}</b><span>${esc(t)}</span></label>`).join('');
+
+  /* The video sits between the headline and the first question on a wide screen, where
+     there is room for both. On a phone it moves below the tiles (see the order
+     rules in style.css) — a 16:9 block above the symptom board pushes the only
+     thing this page asks you to do off the bottom of the screen. */
+  const heroVideo = H.mode === 'mp4' ? `
+  <div class="herovid" id="herovid">
+    <div class="hv-frame">
+      <video id="hv" playsinline muted loop preload="metadata"
+        ${H.poster ? `poster="${esc(H.poster)}"` : ''}>
+        ${H.webm ? `<source src="${esc(H.webm)}" type="video/webm">` : ''}
+        <source src="${esc(H.src)}" type="video/mp4">
+      </video>
+      ${H.hasAudio ? `<button type="button" class="hv-sound" id="hvsound" aria-label="Turn sound on">
+        ${ico('sound_off', 17)}<span>Sound</span>
+      </button>` : ''}
+    </div>
+    ${H.caption ? `<div class="hv-cap">${esc(H.caption)}</div>` : ''}
+  </div>` : H.mode === 'youtube' ? `
+  <div class="herovid" id="herovid">
+    <div class="hv-frame">
+      <button type="button" class="hv-facade" id="hvfacade" data-yt="${esc(H.id)}"
+        aria-label="Play the video">
+        <img src="${esc(H.poster)}" alt="" loading="lazy"
+          onerror="this.onerror=null;this.src='${esc(H.fallbackPoster || '')}'">
+        <span class="hv-play">${ico('play', 26)}</span>
+      </button>
+    </div>
+    ${H.caption ? `<div class="hv-cap">${esc(H.caption)}</div>` : ''}
+  </div>` : '';
 
   const body = `
 <div class="shell"><div class="narrow">
@@ -82,7 +117,7 @@ function intake() {
       <span class="pledge">${ico('camera', 15)} Photos of everything we find</span>
     </div>
   </div>
-
+${heroVideo}
   <div class="talk" id="talk"></div>
 
   <form method="post" action="/book" id="bookform" novalidate>
@@ -175,6 +210,57 @@ const $$ = (s,r)=>Array.from((r||document).querySelectorAll(s));
 const talk = $('#talk');
 let session = null, priced = null;
 
+/* Fire-and-forget. Measurement must never be able to break a booking, so this
+   swallows everything and returns nothing worth awaiting. */
+function track(step, meta){
+  try{
+    fetch('/api/funnel',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({session, step, meta:meta||null}), keepalive:true}).catch(()=>{});
+  }catch(e){}
+}
+
+/* ---------- hero video ----------
+   Muted autoplay only while on screen, and gone the moment the conversation
+   starts. Once someone has answered the first question the page is a dialogue,
+   and a looping clip beside it competes for attention we just earned. */
+const heroVid = $('#herovid');
+function killHeroVideo(){
+  if (!heroVid || heroVid.classList.contains('hv-gone')) return;
+  const v = $('#hv');
+  if (v) { try{ v.pause(); }catch(e){} }
+  heroVid.classList.add('hv-gone');
+  setTimeout(()=>{ if(heroVid.parentNode) heroVid.remove(); }, 400);
+}
+(function(){
+  const v = $('#hv');
+  if (v){
+    /* Autoplay is a request, not a guarantee — data saver and low power mode
+       both refuse it. The poster stays up and nothing looks broken. */
+    if ('IntersectionObserver' in window){
+      new IntersectionObserver((es)=>es.forEach(e=>{
+        if (e.isIntersecting) v.play().catch(()=>{}); else v.pause();
+      }), {threshold:.25}).observe(v);
+    } else { v.play().catch(()=>{}); }
+    const sb = $('#hvsound');
+    if (sb) sb.addEventListener('click', ()=>{
+      v.muted = !v.muted;
+      sb.classList.toggle('on', !v.muted);
+      sb.setAttribute('aria-label', v.muted ? 'Turn sound on' : 'Turn sound off');
+      if(!v.muted){ v.play().catch(()=>{}); track('hero_video_sound_on'); }
+    });
+  }
+  /* Click-to-play facade: no YouTube JS and no cookies until someone asks. */
+  const fa = $('#hvfacade');
+  if (fa) fa.addEventListener('click', ()=>{
+    const f = document.createElement('iframe');
+    f.src = 'https://www.youtube-nocookie.com/embed/'+fa.dataset.yt+'?autoplay=1&rel=0&modestbranding=1&playsinline=1';
+    f.title = 'Wrenchmark'; f.className = 'hv-embed';
+    f.allow = 'autoplay; encrypted-media; picture-in-picture'; f.allowFullscreen = true;
+    fa.replaceWith(f);
+    track('hero_video_play', {source:'youtube'});
+  });
+})();
+
 const money = c => '$' + (Number(c||0)/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
 const wait = ms => new Promise(r=>setTimeout(r,ms));
 
@@ -266,6 +352,7 @@ async function begin(){
   }).then(function(x){return x.json()});
   session = r.session;
   $('#f-session').value = r.session;
+  killHeroVideo();
   ask(r.question, r.step, r.total);
 }
 
@@ -450,6 +537,7 @@ $('#f-phone').addEventListener('input', e=>{
 $$('[data-slot]').forEach(s=>s.addEventListener('click',()=>{
   $$('[data-slot]').forEach(x=>x.classList.remove('sel'));
   s.classList.add('sel'); $('input',s).checked=true;
+  track('slot_selected', { slot: $('input',s).value });
 }));
 $('[data-slot]').classList.add('sel');
 
@@ -875,6 +963,81 @@ function adminHome(jobs, m, sms) {
   return page('Operations', 'admin', body);
 }
 
+/* =======================================================================
+   OPS — funnel report
+   ======================================================================= */
+
+function funnelView(f) {
+  const metric = (k, v, n) => `<div class="metric"><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="n">${esc(n)}</div></div>`;
+
+  /* The branch is the code assess() resolved to, which does not always exist in
+     the rate card — "other" and the thin-signal codes do not. Fall back through
+     triage's own labels or the table shows slugs. */
+  const LABELS = require('./triage').LABELS;
+  const branchLabel = (code) => (LABELS && LABELS[code]) || symLabel(code);
+
+  const rungs = f.ladder.map((r, i) => `
+    <div class="rung">
+      <div class="rung-head">
+        <div><b>${esc(r.label)}</b><span>${esc(r.note)}</span></div>
+        <div class="rung-n"><b>${r.count}</b><span>${r.pct_of_top}% of all starts</span></div>
+      </div>
+      <div class="rung-bar"><i style="width:${r.pct_of_top}%"></i></div>
+      ${i ? `<div class="rung-drop${r.lost ? ' bad' : ''}">${r.step_pct}% carried over from the step above${r.lost ? ` · ${r.lost} left here` : ''}</div>` : ''}
+    </div>`).join('');
+
+  const branchRows = f.branches.length ? f.branches.map((b) => `
+    <tr>
+      <td style="font-weight:560">${esc(branchLabel(b.branch))}</td>
+      <td class="num" style="text-align:right">${b.started}</td>
+      <td class="num" style="text-align:right">${b.triaged}</td>
+      <td class="num" style="text-align:right;font-weight:600">${b.to_price}%</td>
+      <td class="num" style="text-align:right">${b.triage_to_price}%</td>
+      <td class="num" style="text-align:right">${b.booked}</td>
+      <td class="num" style="text-align:right;color:var(--g500)">${b.exits}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="7"><div class="empty">No sessions in this window yet</div></td></tr>`;
+
+  const body = `<div class="shell">
+    <div class="page-head"><h1>Funnel</h1>
+      <p>Where people leave, counted by session over the last ${f.days} days. Every rung is a different fix — a drop at the triage questions is a copy problem, a drop at the vehicle step is a friction problem, and they are not interchangeable.</p></div>
+
+    <div class="mgrid" style="margin-top:22px">
+      ${metric('Symptom → price viewed', f.headline + '%', 'The health metric for the whole funnel')}
+      ${metric('Sessions', f.sessions, 'Anyone who tapped a tile or typed')}
+      ${metric('No range given', f.side.unrangeable, 'Signal too thin to quote a repair honestly')}
+      ${metric('Hero video plays', f.side.video_plays, 'Clicked play on the homepage clip')}
+    </div>
+
+    <div class="section-title">The ladder</div>
+    <div class="panel"><div class="panel-b">${rungs}</div></div>
+
+    <div class="section-title">By branch</div>
+    <div class="panel"><div class="scroll-x"><table class="tbl">
+      <thead><tr><th>Likely cause</th>
+        <th style="text-align:right">Started</th>
+        <th style="text-align:right">Triaged</th>
+        <th style="text-align:right">→ Price</th>
+        <th style="text-align:right">Triage → price</th>
+        <th style="text-align:right">Booked</th>
+        <th style="text-align:right">Honest exits</th></tr></thead>
+      <tbody>${branchRows}</tbody></table></div>
+      <div class="panel-b" style="border-top:1px solid var(--g100);color:var(--g500);font-size:13px">
+        A branch converting at half the rate of the others is a question set that needs rewriting, not a redesign.
+        Honest exits are counted separately — they are a cost we chose, not a leak.
+      </div>
+    </div>
+
+    <div class="section-title">Window</div>
+    <div class="panel"><div class="panel-b">
+      <a class="btn btn-sm btn-ghost" href="/admin/funnel?days=7">7 days</a>
+      <a class="btn btn-sm btn-ghost" href="/admin/funnel?days=14">14 days</a>
+      <a class="btn btn-sm btn-ghost" href="/admin/funnel?days=30">30 days</a>
+    </div></div>
+  </div>`;
+  return page('Funnel', 'ops', body);
+}
+
 function jobReport(j, veh, cust, q, dx, media, pay, events, contractor) {
   const shots = media.length ? `<div class="shots">${media.map((mm) => `
     <figure class="shot"><img src="${esc(mm.url)}" alt="${esc(mm.media_role)}">
@@ -944,7 +1107,7 @@ function jobReport(j, veh, cust, q, dx, media, pay, events, contractor) {
   return page('Job ' + jobRef(j.id), 'admin', body);
 }
 
-module.exports = { page, intake, quoteView, bookedView, techPicker, techBoard, diagnosisForm, adminHome, jobReport, esc, money, jobRef, symLabel };
+module.exports = { page, intake, quoteView, bookedView, techPicker, techBoard, diagnosisForm, adminHome, funnelView, jobReport, esc, money, jobRef, symLabel };
 
 /* =======================================================================
    LIVE DISPATCH — the matching engine made visible

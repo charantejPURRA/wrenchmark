@@ -24,6 +24,12 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      - key: HERO_VIDEO_MP4
+        value: /media/hero.mp4
+      - key: HERO_VIDEO_WEBM
+        value: /media/hero.webm
+      - key: HERO_VIDEO_POSTER
+        value: /media/hero-poster.jpg
       - key: NODE_ENV
         value: production
       - key: SESSION_SECRET

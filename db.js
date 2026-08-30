@@ -206,6 +206,18 @@ CREATE TABLE IF NOT EXISTS rate_card (
   mobile_eligible INTEGER DEFAULT 1,
   UNIQUE(symptom_code, vehicle_class)
 );
+
+CREATE TABLE IF NOT EXISTS funnel_events (
+  id INTEGER PRIMARY KEY,
+  session TEXT NOT NULL,
+  step TEXT NOT NULL,
+  branch TEXT,
+  meta TEXT,
+  job_id INTEGER REFERENCES jobs(id),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_funnel_session ON funnel_events(session);
+CREATE INDEX IF NOT EXISTS idx_funnel_step ON funnel_events(step);
 `);
 
 function logEvent(job_id, contractor_id, event_type, payload) {
@@ -214,4 +226,23 @@ function logEvent(job_id, contractor_id, event_type, payload) {
   ).run(job_id, contractor_id || null, event_type, payload ? JSON.stringify(payload) : null);
 }
 
-module.exports = { db, logEvent };
+module.exports = {
+  logFunnel, attachFunnelJob, db, logEvent };
+
+/* Funnel instrumentation. Separate from logEvent, which is a per-job audit trail:
+   most people who leave never create a job, and they are exactly the ones worth
+   counting. */
+function logFunnel(session, step, { branch = null, meta = null, job_id = null } = {}) {
+  if (!session) return;
+  try {
+    db.prepare(`INSERT INTO funnel_events (session, step, branch, meta, job_id)
+                VALUES (?,?,?,?,?)`)
+      .run(session, step, branch, meta ? JSON.stringify(meta) : null, job_id);
+  } catch (e) { /* never let measurement break a booking */ }
+}
+
+function attachFunnelJob(session, job_id) {
+  if (!session || !job_id) return;
+  try { db.prepare(`UPDATE funnel_events SET job_id=? WHERE session=? AND job_id IS NULL`).run(job_id, session); }
+  catch (e) {}
+}

@@ -177,3 +177,80 @@ on the jobs table.
 `/admin/dispatch` — metro map with mechanic pins and the job, lines showing who was
 offered, and the full ranked candidate table with each score's breakdown and every
 exclusion reason. This is the screen that makes the engine auditable.
+
+## Funnel report
+
+`/admin/funnel` — where people leave, counted by distinct session over a rolling
+window (`?days=7|14|30`). Behind the admin login like the rest of `/admin`.
+
+The headline is **symptom selected → price viewed**. Everything else on the
+screen exists to diagnose that one number.
+
+| Rung | Logged from | What a drop here means |
+|---|---|---|
+| `symptom_selected` | `/api/triage/start` | — |
+| `triage_complete` | `/api/triage/note`, where `assess()` resolves | The questions read as an interrogation, or one branch confuses people |
+| `vehicle_identified` | `/api/triage/price` | Friction in the year/make/model cascade |
+| `price_viewed` | `/api/triage/price` | They saw the number and did not like it, or did not trust it |
+| `slot_selected` | client, on window choice | Supply, not copy |
+| `booked` | `/book` | Last-mile form friction |
+
+The branch is stamped at `assess()`, not at the board, because with a
+multi-select board the entry taps are not yet a branch — the scores resolve into
+one only at assessment. The by-branch table therefore splits by likely cause,
+which is the more useful cut anyway: a cause converting at half the rate of the
+others is a question set that needs rewriting, not a redesign.
+
+`/api/funnel` accepts only an allowlist of client-side step names. No free-form
+steps, so a stray or hostile call cannot pollute the ladder. All logging is
+wrapped so that measurement can never break a booking.
+
+On booking, every row in that session is backfilled with the job id, so a funnel
+session can be traced to the job it became.
+
+## Hero video
+
+Off unless configured. Files ship in `public/media/` and both blueprints set the
+three variables:
+
+```
+HERO_VIDEO_MP4=/media/hero.mp4
+HERO_VIDEO_WEBM=/media/hero.webm
+HERO_VIDEO_POSTER=/media/hero-poster.jpg
+# HERO_VIDEO_YOUTUBE=<id>       # alternative: click-to-play, no autoplay
+# HERO_VIDEO_HAS_AUDIO=1        # only if the file really has a track
+```
+
+The bundled clip is silent, so no sound toggle renders — a control for a track
+that does not exist is a button that does nothing.
+
+Two rules are built into the layout. **The video never outranks the conversation
+on a phone:** CSS `order` moves it below `.talk` under 760px, because a 16:9
+block between the headline and the first question pushes the only action on the
+page off the bottom of the screen. **The video dies when triage starts:** the
+first question collapses and removes it.
+
+`hero_video_play` and `hero_video_sound_on` are logged, so compare symptom →
+price viewed for the fortnight either side of switching it on. A hero video
+costing more in scroll depth than it earns in trust is a real outcome.
+
+### Re-encoding a replacement clip
+
+Source was 3840x2160 and 18.6MB. What ships is 1600x900, audio stripped,
+`faststart` so playback begins before the download finishes — 857KB and 764KB.
+
+```
+ffmpeg -i source.mp4 -an -vf "scale=1600:900:flags=lanczos" \
+  -c:v libx264 -profile:v high -preset slow -crf 26 \
+  -pix_fmt yuv420p -movflags +faststart public/media/hero.mp4
+
+ffmpeg -i source.mp4 -an -vf "scale=1600:900:flags=lanczos" \
+  -c:v libvpx-vp9 -crf 36 -b:v 0 -row-mt 1 public/media/hero.webm
+
+ffmpeg -ss 8 -i source.mp4 -frames:v 1 -vf "scale=1600:900:flags=lanczos" \
+  -q:v 4 public/media/hero-poster.jpg
+```
+
+WebM is listed first in the `<source>` order so browsers that decode VP9 take the
+smaller file. Pull the poster from a frame partway in — the first frame of most
+clips is the least representative one.

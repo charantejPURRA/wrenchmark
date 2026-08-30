@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { db, logEvent } = require('./db');
+const { db, logEvent, logFunnel, attachFunnelJob } = require('./db');
 const { classFor } = require('./vehicles');
 const GEO = require('./geo');
 const M = require('./match');
@@ -11,6 +11,7 @@ const AUTH = require('./auth');
 const crypto = require('crypto');
 require('./seed');
 const V = require('./views');
+const { heroConfig } = require('./hero');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -95,6 +96,7 @@ app.post('/api/triage/start', express.json(), (req, res) => {
     informative: 0, safety: null, plan: [], step: 0, note: '' });
   // Options first, always. Typing a description of a fault you cannot name is
   // the hardest thing we could ask of someone standing next to a broken car.
+  logFunnel(id, 'symptom_selected');
   res.json({ session: id, question: { ...T.BOARD }, step: 1, total: 4, board: true });
 });
 
@@ -167,6 +169,10 @@ app.post('/api/triage/note', express.json(), async (req, res) => {
   const out = T.assess(s.scores, s.informative);
   s.assessment = out;
   s.lead_code = out.lead_code;
+  /* Branch is stamped here rather than at the board, because with a multi-select
+     board the entry taps are not yet a branch — assess() is where the scores
+     resolve into one. */
+  logFunnel(session, 'triage_complete', { branch: out.lead_code, meta: { rangeable: !!out.rangeable } });
   res.json({ safety: s.safety, restate, done: true, ...out });
 });
 
@@ -189,10 +195,22 @@ app.post('/api/triage/price', express.json(), (req, res) => {
     payload.low_cents = Math.round(mid * 0.84 / 500) * 500;
     payload.high_cents = Math.round(mid * 1.18 / 500) * 500;
   }
+  logFunnel(session, 'vehicle_identified', { branch: code, meta: { vehicle_class: vclass } });
+  logFunnel(session, 'price_viewed', { branch: code, meta: { rangeable: !!a.rangeable } });
   res.json(payload);
 });
 
-app.get('/', (req, res) => res.send(V.intake()));
+/* Client-side steps the server never sees: slot choice, and abandonment points.
+   Kept deliberately dumb — an allowlist, no free-form step names, so a stray
+   call cannot pollute the ladder. */
+const CLIENT_STEPS = new Set(['slot_selected', 'hero_video_play', 'hero_video_sound_on', 'form_started']);
+app.post('/api/funnel', express.json(), (req, res) => {
+  const { session, step, branch, meta } = req.body || {};
+  if (session && CLIENT_STEPS.has(step)) logFunnel(session, step, { branch, meta });
+  res.json({ ok: true });
+});
+
+app.get('/', (req, res) => res.send(V.intake(heroConfig())));
 
 app.post('/book', (req, res) => {
   const b = req.body;
@@ -241,6 +259,13 @@ app.post('/book', (req, res) => {
   logEvent(job.lastInsertRowid, null, 'triage_completed', {
     predicted: lead ? lead.code : null, confidence: lead ? lead.confidence : null,
     questions_answered: sess ? sess.answers.length : 0, safety: sess && sess.safety ? sess.safety.level : null });
+
+  /* Close the loop: the whole session's events get the job id, so a funnel row
+     can be traced to the booking it became. */
+  if (b.triage_session) {
+    logFunnel(b.triage_session, 'booked', { branch: code, job_id: job.lastInsertRowid });
+    attachFunnelJob(b.triage_session, job.lastInsertRowid);
+  }
 
   const j = db.prepare(`SELECT * FROM jobs WHERE id=?`).get(job.lastInsertRowid);
   const q = db.prepare(`SELECT * FROM quotes WHERE job_id=? AND stage='diagnostic'`).get(j.id);
@@ -701,6 +726,100 @@ app.get('/admin/dispatch', (req, res) => {
 app.get('/admin/team', (req, res) => {
   const rows = db.prepare(`SELECT * FROM contractors ORDER BY id`).all();
   res.send(V.teamView(rows, BASE_URL));
+});
+
+/* ---------------- funnel report ----------------
+   The events table has been filling up since v4; nothing read it. A drop-off
+   number you cannot see is the same as not measuring at all.
+
+   Counted by distinct session, not by event, because a session that bounces
+   back to the price screen twice is still one person. The ladder is ordered,
+   so reaching a rung implies the rungs below it — otherwise a customer who
+   skipped an optional step reads as a leak that isn't there. */
+const LADDER = [
+  { key: 'symptom_selected',   label: 'Symptom selected',   note: 'Tapped a tile or typed a description' },
+  { key: 'triage_complete',    label: 'Triage completed',   note: 'Answered the questions, saw the finding' },
+  { key: 'vehicle_identified', label: 'Vehicle identified', note: 'Plate hit or year/make/model resolved' },
+  { key: 'price_viewed',       label: 'Price viewed',       note: 'The conversion moment' },
+  { key: 'slot_selected',      label: 'Slot chosen',        note: 'Window picked, or callback accepted' },
+  { key: 'booked',             label: 'Booking completed',  note: 'Job record created' },
+];
+
+/* Room for step aliases. Empty for now — this lineage has no callback path yet.
+   When one lands, alias it onto slot_selected: a callback request is the same
+   commitment as picking a window, and counting it as a leak would send someone
+   rewriting a screen that is working correctly. */
+const EQUIV = {};
+
+function funnelReport(days = 14) {
+  const rows = db.prepare(`
+    SELECT session, step, branch FROM funnel_events
+    WHERE session IS NOT NULL AND created_at >= datetime('now', ?)`).all(`-${days} days`);
+
+  const bySession = new Map();
+  for (const r of rows) {
+    if (!bySession.has(r.session)) bySession.set(r.session, { steps: new Set(), branch: null });
+    const s = bySession.get(r.session);
+    s.steps.add(r.step);
+    if (r.branch && !s.branch) s.branch = r.branch;
+  }
+
+  const reached = (s, key) => (EQUIV[key] || [key]).some((k) => s.steps.has(k));
+
+  const ladder = LADDER.map((rung, i) => {
+    const sessions = [...bySession.values()].filter((s) =>
+      LADDER.slice(0, i + 1).some((r) => reached(s, r.key)) && reached(s, rung.key));
+    return { ...rung, count: sessions.length };
+  });
+
+  const top = ladder[0].count || 0;
+  ladder.forEach((r, i) => {
+    r.pct_of_top = top ? Math.round((r.count / top) * 100) : 0;
+    const prev = i ? ladder[i - 1].count : r.count;
+    r.step_pct = prev ? Math.round((r.count / prev) * 100) : 0;
+    r.lost = i ? Math.max(0, ladder[i - 1].count - r.count) : 0;
+  });
+
+  /* The headline. Everything else is diagnosis for this one number. */
+  const priced = ladder.find((r) => r.key === 'price_viewed').count;
+  const headline = top ? Math.round((priced / top) * 100) : 0;
+
+  /* Same number split by branch. A branch that converts at half the rate of the
+     others is a copy problem in one question set, not a funnel problem — twenty
+     minutes of writing rather than a redesign. */
+  const branches = {};
+  for (const s of bySession.values()) {
+    const b = s.branch || 'unknown';
+    branches[b] = branches[b] || { branch: b, started: 0, triaged: 0, priced: 0, booked: 0, exits: 0 };
+    branches[b].started++;
+    if (reached(s, 'triage_complete')) branches[b].triaged++;
+    if (reached(s, 'price_viewed')) branches[b].priced++;
+    if (reached(s, 'booked')) branches[b].booked++;
+    if (s.steps.has('honest_exit')) branches[b].exits++;
+  }
+  const branchRows = Object.values(branches)
+    .map((b) => ({
+      ...b,
+      to_price: b.started ? Math.round((b.priced / b.started) * 100) : 0,
+      triage_to_price: b.triaged ? Math.round((b.priced / b.triaged) * 100) : 0,
+    }))
+    .sort((a, b) => b.started - a.started);
+
+  const tally = (step) => [...bySession.values()].filter((s) => s.steps.has(step)).length;
+
+  return {
+    days, sessions: bySession.size, ladder, headline,
+    branches: branchRows,
+    side: {
+      video_plays: tally('hero_video_play'),
+      unrangeable: [...bySession.values()].filter((s) => s.branch === 'other').length,
+    },
+  };
+}
+
+app.get('/admin/funnel', (req, res) => {
+  const days = Math.min(90, Math.max(1, Number(req.query.days) || 14));
+  res.send(V.funnelView(funnelReport(days)));
 });
 
 app.get('/admin/export.csv', (req, res) => {
